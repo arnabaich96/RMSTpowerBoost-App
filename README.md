@@ -41,10 +41,10 @@ It is designed for biostatisticians, clinical trialists, and researchers who nee
 
 This application is powered by the **`RMSTpowerBoost`** R package, which contains all the underlying statistical functions. For users who want to integrate these calculations into their own R scripts, see the full documentation, or contribute to the project, please visit the official package repository.
 
-  * **Package Website & Source Code**: [**Click Here**](https://uthsc-zhang.github.io/RMSTpowerBoost-Package/articles/RMSTpowerBoost.html)
+  * **Package Website & Source Code**: [**Click Here**](https://uthsc-zhang.github.io/RMSTpowerBoost-Package/articles/RMSTpowerBoost-Main.html)
 
 -----
 
 ## Feedback and Issues
 
-If you encounter a bug or have a suggestion for improving the application, please open an issue on this repository's "Issues" tab.
+If you encounter a bug or have a suggestion for improving the application, please open an issue on this repository's "Issues" tab. [**Click Here**](https://github.com/UTHSC-Zhang/RMSTpowerBoost-Package/issues)
