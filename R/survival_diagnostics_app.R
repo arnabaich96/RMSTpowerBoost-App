@@ -44,15 +44,42 @@
   # --- 2. Generate Kaplan-Meier Plot ---
   surv_formula <- as.formula(paste("Surv(", time_var, ",", status_var, ") ~", arm_var))
   # Calculate fit using the specified alpha for the confidence level
-  fit <- survival::survfit(surv_formula, data = df, conf.level = 1 - alpha)
-  fit_fortified <- ggplot2::fortify(fit)
+  conf_value <- 1 - alpha
+  survfit_formals <- names(formals(survival::survfit.formula))
+  if ("conf.int" %in% survfit_formals) {
+    fit <- survival::survfit(surv_formula, data = df, conf.int = conf_value)
+  } else if ("conf.level" %in% survfit_formals) {
+    fit <- survival::survfit(surv_formula, data = df, conf.level = conf_value)
+  } else {
+    fit <- survival::survfit(surv_formula, data = df)
+  }
+  fit_fortified <- tryCatch(ggplot2::fortify(fit), error = function(e) NULL)
+  if (!is.data.frame(fit_fortified)) {
+    fit_sum <- summary(fit)
+    strata_vals <- fit_sum$strata
+    if (is.null(strata_vals)) {
+      strata_vals <- rep("All", length(fit_sum$time))
+    }
+    lower_vals <- fit_sum$lower
+    upper_vals <- fit_sum$upper
+    if (is.null(lower_vals)) lower_vals <- rep(NA_real_, length(fit_sum$time))
+    if (is.null(upper_vals)) upper_vals <- rep(NA_real_, length(fit_sum$time))
+    fit_fortified <- data.frame(
+      time = fit_sum$time,
+      surv = fit_sum$surv,
+      lower = lower_vals,
+      upper = upper_vals,
+      strata = strata_vals,
+      stringsAsFactors = FALSE
+    )
+  }
   
   # Updated plotting logic for clarity
   km_plot <- ggplot2::ggplot(fit_fortified, ggplot2::aes(x = .data$time, y = .data$surv)) +
     # Add the confidence interval ribbon with a dedicated fill aesthetic
-    ggplot2::geom_ribbon(aes(ymin = .data$lower, ymax = .data$upper, fill = .data$strata), alpha = 0.3) +
+    ggplot2::geom_ribbon(ggplot2::aes(ymin = .data$lower, ymax = .data$upper, fill = .data$strata), alpha = 0.3) +
     # Add the survival curve with a dedicated color aesthetic
-    ggplot2::geom_step(aes(color = .data$strata), linewidth = 1) +
+    ggplot2::geom_step(ggplot2::aes(color = .data$strata), linewidth = 1) +
     ggplot2::labs(
       title = "Kaplan-Meier Curve by Treatment Arm",
       x = "Time", y = "Survival Probability", 
