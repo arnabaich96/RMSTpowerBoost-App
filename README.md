@@ -1,8 +1,6 @@
-# RMSTpowerBoost: Interactive Power and Sample Size Calculator
 
-![Codecov Sunburst](https://codecov.io/github/arnabaich96/RMSTpowerBoost-App/graphs/sunburst.svg?token=5C7QOI1GAB)
 
-`5C7QOI1GAB`
+# RMSTpowerBoost: Interactive Power and Sample Size Calculator  [![codecov](https://codecov.io/github/arnabaich96/RMSTpowerBoost-App/graph/badge.svg?token=5C7QOI1GAB)](https://codecov.io/github/arnabaich96/RMSTpowerBoost-App)
 
 This repository contains the source code for the `RMSTpowerBoost` web application, an interactive tool for designing modern clinical trials.
 
@@ -50,3 +48,8 @@ This application is powered by the **`RMSTpowerBoost`** R package, which contain
 ## Feedback and Issues
 
 If you encounter a bug or have a suggestion for improving the application, please open an issue on this repository's "Issues" tab. [**Click Here**](https://github.com/UTHSC-Zhang/RMSTpowerBoost-Package/issues)
+
+## Coverge Sunburst
+
+![Codecov Sunburst](https://codecov.io/github/arnabaich96/RMSTpowerBoost-App/graphs/sunburst.svg?token=5C7QOI1GAB)
+
