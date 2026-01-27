@@ -1,0 +1,24 @@
+codecov:
+  require_ci_to_pass: false
+
+comment: false
+
+coverage:
+  precision: 2
+  round: down
+  range: "20...100"
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+    patch:
+      default:
+        target: auto
+        threshold: 1%
+
+ignore:
+  - "renv/**"
+  - "rsconnect/**"
+  - "sim.data/**"
+  - "app.R"
