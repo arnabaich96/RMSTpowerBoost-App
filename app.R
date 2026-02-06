@@ -2,7 +2,7 @@
 
 # ------------------ Packages ------------------
 packages <- c(
-  "shiny","shinyjs","bslib","DT","ggplot2","plotly","survival","survminer",
+  "shiny","shinyjs","bslib","DT","ggplot2","plotly","survival",
   "kableExtra","magrittr","rmarkdown","dplyr","tidyr","purrr","stringr","tibble"
 )
 invisible(lapply(packages, function(pkg){
@@ -81,6 +81,162 @@ add_subplot_titles <- function(p, titles, vgap = 0.04, fontsize = 14){
 DT_25 <- function(df) DT::datatable(df, options = list(pageLength = 25, scrollX = TRUE), rownames = FALSE)
 
 as_factor_safe <- function(x) { if (is.factor(x)) x else factor(x) }
+
+# HTML table helper that gracefully degrades if kableExtra isn't available
+kable_html_safe <- function(df, caption = NULL) {
+  if (requireNamespace("kableExtra", quietly = TRUE)) {
+    kableExtra::kbl(df, "html", caption = caption) %>%
+      kableExtra::kable_styling(bootstrap_options = c("striped","hover","condensed"), full_width = FALSE) %>%
+      HTML()
+  } else {
+    HTML(knitr::kable(df, "html", caption = caption))
+  }
+}
+
+# Convert hex color to rgba string with alpha
+hex_to_rgba <- function(hex, alpha = 0.3) {
+  hex <- gsub("#","", hex)
+  if (nchar(hex) == 3) {
+    hex <- paste0(rep(strsplit(hex, "")[[1]], each = 2), collapse = "")
+  }
+  r <- strtoi(substr(hex, 1, 2), 16L)
+  g <- strtoi(substr(hex, 3, 4), 16L)
+  b <- strtoi(substr(hex, 5, 6), 16L)
+  sprintf("rgba(%d,%d,%d,%.3f)", r, g, b, alpha)
+}
+
+# Build KM plotly directly to avoid ggplotly ribbon artifacts
+km_plot_plotly <- function(fit, conf.int = TRUE, conf.int.alpha = 0.3, conf.level = 0.95,
+                           palette = NULL, legend.title = NULL, legend.labs = NULL,
+                           xlab = NULL, ylab = "Survival probability", title = NULL,
+                           showlegend = TRUE) {
+  sf <- summary(fit, conf.int = conf.int, conf.level = conf.level)
+  df <- data.frame(
+    time = sf$time,
+    surv = sf$surv,
+    lower = sf$lower,
+    upper = sf$upper,
+    strata = if (is.null(sf$strata)) "All" else as.character(sf$strata),
+    stringsAsFactors = FALSE
+  )
+  df$strata <- sub("^.*=", "", df$strata)
+  if (!is.null(legend.labs) && length(unique(df$strata)) == length(legend.labs)) {
+    df$strata <- factor(df$strata, levels = unique(df$strata), labels = legend.labs)
+  } else {
+    df$strata <- factor(df$strata, levels = unique(df$strata))
+  }
+  
+  groups <- levels(df$strata)
+  if (is.null(palette) || length(palette) == 0) palette <- c("#0d6efd", "#dc3545")
+  pal <- rep(palette, length.out = length(groups))
+  
+  p <- plotly::plot_ly()
+  for (i in seq_along(groups)) {
+    g <- groups[i]
+    d <- df[df$strata == g, , drop = FALSE]
+    d <- d[order(d$time), , drop = FALSE]
+    col <- pal[i]
+    
+    if (conf.int) {
+      p <- plotly::add_trace(
+        p,
+        x = c(d$time, rev(d$time)),
+        y = c(d$upper, rev(d$lower)),
+        type = "scatter",
+        mode = "lines",
+        line = list(color = "rgba(0,0,0,0)"),
+        fill = "toself",
+        fillcolor = hex_to_rgba(col, conf.int.alpha),
+        hoverinfo = "skip",
+        showlegend = FALSE,
+        legendgroup = as.character(g)
+      )
+    }
+    
+    p <- plotly::add_trace(
+      p,
+      x = d$time,
+      y = d$surv,
+      type = "scatter",
+      mode = "lines",
+      line = list(color = col, width = 2, shape = "hv"),
+      name = as.character(g),
+      legendgroup = as.character(g),
+      showlegend = showlegend
+    )
+  }
+  
+  p <- plotly::layout(
+    p,
+    title = list(text = title %||% "", x = 0.02, xanchor = "left"),
+    xaxis = list(title = xlab %||% ""),
+    yaxis = list(title = ylab, range = c(0, 1)),
+    legend = list(title = list(text = legend.title %||% "")),
+    paper_bgcolor = "rgba(0,0,0,0)",
+    plot_bgcolor  = "rgba(0,0,0,0)"
+  )
+  
+  p
+}
+
+# KM plot helper that avoids a hard dependency on survminer
+km_plot_gg <- function(fit, data, conf.int = TRUE, conf.int.alpha = 0.3, conf.level = 0.95,
+                       palette = NULL, legend.title = NULL, legend.labs = NULL,
+                       xlab = NULL, ylab = "Survival probability", ggtheme = transparent_theme(),
+                       use_survminer = FALSE) {
+  if (use_survminer && requireNamespace("survminer", quietly = TRUE)) {
+    p <- survminer::ggsurvplot(
+      fit, data = data,
+      conf.int = conf.int, conf.int.alpha = conf.int.alpha, conf.int.style = "ribbon",
+      conf.level = conf.level,
+      palette = palette,
+      legend.title = legend.title,
+      legend.labs  = legend.labs,
+      xlab = xlab,
+      ylab = ylab,
+      ggtheme = ggtheme
+    )$plot
+    return(p)
+  }
+  
+  sf <- summary(fit, conf.int = conf.int, conf.level = conf.level)
+  df <- data.frame(
+    time = sf$time,
+    surv = sf$surv,
+    lower = sf$lower,
+    upper = sf$upper,
+    strata = if (is.null(sf$strata)) "All" else as.character(sf$strata),
+    stringsAsFactors = FALSE
+  )
+  df$strata <- sub("^.*=", "", df$strata)
+  if (!is.null(legend.labs) && length(unique(df$strata)) == length(legend.labs)) {
+    df$strata <- factor(df$strata, levels = unique(df$strata), labels = legend.labs)
+  } else {
+    df$strata <- factor(df$strata, levels = unique(df$strata))
+  }
+  
+  df <- df[order(df$strata, df$time), , drop = FALSE]
+  
+  lab_args <- list(x = xlab %||% "", y = ylab, color = legend.title)
+  if (conf.int) lab_args$fill <- legend.title
+  
+  p <- ggplot(df, aes(x = time, y = surv, color = strata, group = strata)) +
+    do.call(labs, lab_args) +
+    ggtheme
+  
+  if (conf.int) {
+    p <- p + geom_ribbon(aes(ymin = lower, ymax = upper, fill = strata, group = strata),
+                         alpha = conf.int.alpha, color = NA)
+  }
+  p <- p + geom_step(size = 1)
+  
+  if (!is.null(palette)) {
+    pal <- rep(palette, length.out = nlevels(df$strata))
+    p <- p + scale_color_manual(values = pal) + scale_fill_manual(values = pal)
+  }
+  
+  p
+}
 
 # Summaries that never error
 covariate_summary <- function(df, arm_var = NULL) {
@@ -1326,22 +1482,18 @@ server <- function(input, output, session) {
         d  <- subset(plot_data, stratum == st)
         d$arm <- factor(d$arm)
         fit <- survfit(Surv(time, status) ~ arm, data = d)
-        
-        gp <- ggsurvplot(
-          fit, data = d,
-          conf.int = TRUE, conf.int.alpha = 0.3, conf.int.style = "ribbon",
+        km_plot_plotly(
+          fit,
+          conf.int = TRUE, conf.int.alpha = 0.3,
           conf.level = 1 - input$alpha,
           palette = pal[1:2],
           legend.title = input$arm_var,
           legend.labs  = pretty_arm_labels(d$arm),
           xlab = paste("Time in the units of", input$time_var),
           ylab = "Survival probability",
-          ggtheme = transparent_theme()
-        )$plot
-        
-        pl <- to_plotly_clear(gp)
-        if (i > 1) pl <- plotly::layout(pl, showlegend = FALSE)
-        pl
+          title = NULL,
+          showlegend = (i == 1)
+        )
       })
       
       ncols <- 2
@@ -1369,24 +1521,18 @@ server <- function(input, output, session) {
     } else {
       plot_data$arm <- factor(plot_data$arm)
       fit <- survfit(Surv(time, status) ~ arm, data = plot_data)
-      gp <- ggsurvplot(
-        fit, data = plot_data,
-        conf.int = TRUE, conf.int.alpha = 0.3, conf.int.style = "ribbon",
+      km_plot_plotly(
+        fit,
+        conf.int = TRUE, conf.int.alpha = 0.3,
         conf.level = 1 - input$alpha,
         palette = pal[1:2],
         legend.title = input$arm_var,
         legend.labs  = pretty_arm_labels(plot_data$arm),
         xlab = paste("Time in the units of", input$time_var),
         ylab = "Survival probability",
-        ggtheme = transparent_theme()
-      )$plot
-      to_plotly_clear(gp) %>%
-        plotly::layout(
-          title = list(
-            text = sprintf("Kaplan–Meier — %s", input$arm_var),
-            x = 0.02, xanchor = "left"
-          )
-        )
+        title = sprintf("Kaplanâ€“Meier â€” %s", input$arm_var),
+        showlegend = TRUE
+      )
     }
   })
   
@@ -1405,14 +1551,12 @@ server <- function(input, output, session) {
   output$results_table_ui <- renderUI({
     req(run_output()$results$results_data)
     run_output()$results$results_data %>%
-      kbl("html", caption = "Power and sample size results") %>%
-      kable_styling(bootstrap_options = c("striped","hover","condensed"), full_width = FALSE) %>% HTML()
+      kable_html_safe(caption = "Power and sample size results")
   })
   output$summary_table_ui <- renderUI({
     req(run_output()$results$results_summary)
     run_output()$results$results_summary %>%
-      kbl("html", caption = "Summary measures derived from the data") %>%
-      kable_styling(bootstrap_options = c("striped","hover"), full_width = FALSE) %>% HTML()
+      kable_html_safe(caption = "Summary measures derived from the data")
   })
   output$data_summary_ui <- renderUI({
     req(rv$data_df)
@@ -1423,13 +1567,13 @@ server <- function(input, output, session) {
     if (!is.null(sm$continuous) && nrow(sm$continuous)) {
       ui <- tagAppendChildren(ui,
                               h5("Continuous covariates"),
-                              sm$continuous %>% kbl("html") %>% kable_styling(bootstrap_options = c("striped","hover"), full_width = FALSE) %>% HTML()
+                              kable_html_safe(sm$continuous, caption = NULL)
       )
     }
     if (!is.null(sm$categorical) && nrow(sm$categorical)) {
       ui <- tagAppendChildren(ui,
                               h5("Categorical covariates"),
-                              sm$categorical %>% kbl("html") %>% kable_styling(bootstrap_options = c("striped","hover"), full_width = FALSE) %>% HTML()
+                              kable_html_safe(sm$categorical, caption = NULL)
       )
     }
     ui
@@ -1525,3 +1669,4 @@ server <- function(input, output, session) {
 
 options(shiny.launch.browser = TRUE)
 shinyApp(ui, server)
+
