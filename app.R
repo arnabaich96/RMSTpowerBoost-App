@@ -20,21 +20,45 @@ invisible(lapply(packages, function(pkg) {
   )
 }))
 
+# ------------------ App Root / Repo Guard ------------------
+app_file <- tryCatch(sys.frame(1)$ofile, error = function(e) NULL)
+app_root <- if (!is.null(app_file) && nzchar(app_file)) {
+  normalizePath(dirname(app_file), winslash = "/", mustWork = FALSE)
+} else {
+  normalizePath(getwd(), winslash = "/", mustWork = FALSE)
+}
+is_app_repo <- file.exists(file.path(app_root, "RMSTpowerBoost-App.Rproj")) ||
+  file.exists(file.path(app_root, "RMSTpowerBoost-App.code-workspace"))
+if (interactive() && !is_app_repo) {
+  stop(
+    "Run the app from the RMSTpowerBoost-App repo root (where app.R lives). ",
+    "Current working directory: ", app_root,
+    call. = FALSE
+  )
+}
+pipeline_html_path <- function() {
+  p1 <- file.path(app_root, "www", "pipeline.html")
+  if (file.exists(p1)) return(p1)
+  ""
+}
+
 # ------------------ Source your R/ scripts (simulation engine etc.) ------------------
-if (dir.exists("R")) {
-  r_files <- sort(list.files("R", pattern = "\\.R$", full.names = TRUE))
+app_r_dir <- file.path(app_root, "R")
+if (dir.exists(app_r_dir)) {
+  r_files <- sort(list.files(app_r_dir, pattern = "\\.R$", full.names = TRUE))
   if (!length(r_files)) {
     stop("No R scripts found under 'R/'. App helpers could not be loaded.", call. = FALSE)
+  } else {
+    for (rf in r_files) {
+      tryCatch(
+        source(rf, local = FALSE),
+        error = function(e) {
+          stop("Failed to source helper script '", rf, "': ", conditionMessage(e), call. = FALSE)
+        }
+      )
+    }
+    cat("All R scripts in the 'R/' directory have been sourced.\n")
   }
-  for (rf in r_files) {
-    tryCatch(
-      source(rf, local = FALSE),
-      error = function(e) {
-        stop("Failed to source helper script '", rf, "': ", conditionMessage(e), call. = FALSE)
-      }
-    )
-  }
-  cat("All R scripts in the 'R/' directory have been sourced.\n")
 } else {
   stop("No R/ directory found; simulation helpers are unavailable.", call. = FALSE)
 }
@@ -150,6 +174,35 @@ to_plotly_clear <- function(p) {
       plot_bgcolor  = 'rgba(0,0,0,0)'
     )
 }
+
+as_plotly_clear <- function(p) {
+  if (inherits(p, "plotly")) {
+    return(plotly::layout(
+      p,
+      paper_bgcolor = "rgba(0,0,0,0)",
+      plot_bgcolor = "rgba(0,0,0,0)"
+    ))
+  }
+  to_plotly_clear(p)
+}
+
+format_num3 <- function(x) {
+  out <- rep(NA_character_, length(x))
+  ok <- is.finite(x)
+  txt <- sprintf("%.3f", x[ok])
+  txt <- sub("0+$", "", txt)
+  txt <- sub("\\.$", "", txt)
+  out[ok] <- txt
+  out
+}
+
+format_df_3dp <- function(df) {
+  if (is.null(df) || !nrow(df)) return(df)
+  out <- df
+  num_cols <- vapply(out, is.numeric, logical(1))
+  out[num_cols] <- lapply(out[num_cols], format_num3)
+  out
+}
 # Put a title above every subplot domain (for plotly::subplot)
 add_subplot_titles <- function(p, titles, vgap = 0.04, fontsize = 14){
   xaxs <- grep("^xaxis", names(p$x$layout), value = TRUE)
@@ -170,12 +223,15 @@ add_subplot_titles <- function(p, titles, vgap = 0.04, fontsize = 14){
   plotly::layout(p, annotations = c(p$x$layout$annotations, anns))
 }
 
-DT_25 <- function(df) DT::datatable(df, options = list(pageLength = 25, scrollX = TRUE), rownames = FALSE)
+DT_25 <- function(df) {
+  DT::datatable(format_df_3dp(df), options = list(pageLength = 25, scrollX = TRUE), rownames = FALSE)
+}
 
 as_factor_safe <- function(x) { if (is.factor(x)) x else factor(x) }
 
 # HTML table helper that gracefully degrades if kableExtra isn't available
 kable_html_safe <- function(df, caption = NULL) {
+  df <- format_df_3dp(df)
   if (requireNamespace("kableExtra", quietly = TRUE)) {
     kableExtra::kbl(df, "html", caption = caption) %>%
       kableExtra::kable_styling(bootstrap_options = c("striped","hover","condensed"), full_width = FALSE) %>%
@@ -217,6 +273,17 @@ km_plot_plotly <- function(fit, conf.int = TRUE, conf.int.alpha = 0.3, conf.leve
   } else {
     df$strata <- factor(df$strata, levels = unique(df$strata))
   }
+  # Ensure each KM curve starts at (time=0, survival=1) so arms share a proper baseline.
+  strata_levels <- levels(df$strata)
+  starter <- data.frame(
+    time = rep(0, length(strata_levels)),
+    surv = rep(1, length(strata_levels)),
+    lower = rep(1, length(strata_levels)),
+    upper = rep(1, length(strata_levels)),
+    strata = factor(strata_levels, levels = strata_levels),
+    stringsAsFactors = FALSE
+  )
+  df <- rbind(starter, df)
   
   groups <- levels(df$strata)
   if (is.null(palette) || length(palette) == 0) palette <- c("#0d6efd", "#dc3545")
@@ -275,7 +342,8 @@ km_plot_plotly <- function(fit, conf.int = TRUE, conf.int.alpha = 0.3, conf.leve
     p,
     title = list(text = title %||% "", x = 0.02, xanchor = "left"),
     xaxis = list(title = xlab %||% ""),
-    yaxis = list(title = ylab, range = c(0, 1)),
+    # keep a tiny headroom above 1 so flat segments at survival=1 are visible
+    yaxis = list(title = ylab, range = c(0, 1.02)),
     legend = list(title = list(text = legend.title %||% "")),
     paper_bgcolor = "rgba(0,0,0,0)",
     plot_bgcolor  = "rgba(0,0,0,0)"
@@ -365,7 +433,7 @@ covariate_summary <- function(df, arm_var = NULL) {
         Median  = round(stats::median(x, na.rm = TRUE), 3),
         Q3   = round(stats::quantile(x, 0.75, na.rm = TRUE), 3),
         Max  = round(max(x, na.rm = TRUE), 3),
-        N_Missing = sum(!is.finite(x))
+        N_Missing = round(sum(!is.finite(x)), 3)
       )
     })
     out$continuous <- cont_tab
@@ -378,7 +446,8 @@ covariate_summary <- function(df, arm_var = NULL) {
       } else {
         tt <- as.data.frame(table(x, useNA = "ifany"))
         names(tt) <- c("Level","Count")
-        tt$Percent <- round(100 * tt$Count / sum(tt$Count), 1)
+        tt$Count <- round(tt$Count, 3)
+        tt$Percent <- round(100 * tt$Count / sum(tt$Count), 3)
         tt$Variable <- v
         tt[, c("Variable","Level","Count","Percent")]
       }
@@ -399,9 +468,9 @@ covariate_plots <- function(df, arm_var = NULL, palette = c("#0d6efd","#dc3545",
   for (v in vars) {
     x <- df[[v]]
     if (is.numeric(x)) {
-      p <- ggplot(df, aes(x = .data[[v]])) +
+      p <- ggplot(df, aes(x = .data[[v]], y = after_stat(density))) +
         geom_histogram(bins = 30, alpha = 0.9, fill = palette[1], color = NA) +
-        labs(title = paste("Histogram of", v), x = v, y = "Count") +
+        labs(title = paste("Histogram of", v), x = v, y = "Density") +
         transparent_theme()
       plots[[v]] <- to_plotly_clear(p)
     } else {
@@ -503,13 +572,15 @@ make_inline_template <- function() {
     "  log: NA",
     "  data_provenance: NA",
     "  data: NA",
+    "  data_cleaning: NA",
+    "  reproducibility: NA",
     "---",
     "",
     "```{r setup, include=FALSE}",
     "knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)",
     "suppressPackageStartupMessages({",
     "  library(ggplot2); library(survival); library(survminer);",
-    "  library(kableExtra); library(dplyr); library(tidyr); library(tibble)",
+    "  library(dplyr); library(tidyr); library(tibble)",
     "})",
     "to_kv <- function(x){",
     "  if (is.null(x)) return(\"\")",
@@ -541,8 +612,7 @@ make_inline_template <- function() {
     "      stringsAsFactors = FALSE",
     "    )",
     "  }))",
-    "  kbl(cov_tbl, booktabs = TRUE, caption = \"Covariate definitions\", row.names = FALSE) %>%",
-    "    kable_styling(latex_options = c(\"striped\", \"hold_position\"))",
+    "  knitr::kable(cov_tbl, caption = \"Covariate definitions\", row.names = FALSE)",
     "} else {",
     "  cat(\"No covariates were defined or the data were uploaded.\\n\")",
     "}",
@@ -563,8 +633,7 @@ make_inline_template <- function() {
     "    as.character(or_else(cz$admin_time, or_else(cz$Admin_time, \"\")))",
     "  ), stringsAsFactors = FALSE",
     ")",
-    "kbl(tbl, booktabs = TRUE, caption = \"Event-time and censoring\", row.names = FALSE) %>%",
-    "  kable_styling(latex_options = c(\"striped\", \"hold_position\"))",
+    "knitr::kable(tbl, caption = \"Event-time and censoring\", row.names = FALSE)",
     "```",
     "",
     "# 2) Analysis Configuration",
@@ -574,9 +643,8 @@ make_inline_template <- function() {
     "  Value     = unlist(lapply(params$inputs, function(x) paste(x, collapse = \", \"))),",
     "  stringsAsFactors = FALSE",
     ")",
-    "kbl(inputs_df, booktabs = TRUE, caption = \"Input Parameters\",",
-    "    row.names = FALSE, col.names = c(\"Parameter\",\"Value\")) %>%",
-    "  kable_styling(latex_options = c(\"striped\", \"hold_position\"))",
+    "knitr::kable(inputs_df, caption = \"Input Parameters\",",
+    "    row.names = FALSE, col.names = c(\"Parameter\",\"Value\"))",
     "```",
     "",
     "# 3) Analysis Results",
@@ -591,9 +659,8 @@ make_inline_template <- function() {
     "} else {",
     "  'Log-rank test results'",
     "}",
-    "kbl(params$results$logrank_summary, booktabs = TRUE,",
-    "    caption = cap, row.names = FALSE) %>%",
-    "  kable_styling(latex_options = 'hold_position')",
+    "knitr::kable(params$results$logrank_summary,",
+    "    caption = cap, row.names = FALSE)",
     "```",
     "",
     "## 3.2) Power and Sample Size",
@@ -601,19 +668,117 @@ make_inline_template <- function() {
     "params$results$results_plot",
     "```",
     "```{r results-table, eval = !is.null(params$results$results_data)}",
-    "kbl(params$results$results_data, booktabs = TRUE,",
-    "    caption = \"Power and sample size results\", row.names = FALSE) %>%",
-    "  kable_styling(latex_options = c(\"striped\", \"hold_position\"))",
+    "knitr::kable(params$results$results_data,",
+    "    caption = \"Power and sample size results\", row.names = FALSE)",
     "```",
     "```{r effect-size, eval = !is.null(params$results$results_summary)}",
-    "kbl(params$results$results_summary, booktabs = TRUE,",
-    "    caption = \"Summary measures derived from the data\", row.names = FALSE) %>%",
-    "  kable_styling(latex_options = c(\"striped\", \"hold_position\"))",
+    "knitr::kable(params$results$results_summary,",
+    "    caption = \"Summary measures derived from the data\", row.names = FALSE)",
     "```",
     "",
-    "# 4) Console Output",
+    "# 4) Data Summary and Cleaning",
+    "```{r data-summary-cleaning, echo=FALSE}",
+    "if (!is.null(params$data) && nrow(params$data) > 0) {",
+    "  d <- params$data",
+    "  var_tbl <- data.frame(",
+    "    Variable = names(d),",
+    "    Type = vapply(d, function(x) class(x)[1], character(1)),",
+    "    Missing_Count = vapply(d, function(x) sum(is.na(x)), integer(1)),",
+    "    Missing_Percent = round(100 * vapply(d, function(x) mean(is.na(x)), numeric(1)), 3),",
+    "    Unique_Values = vapply(d, function(x) length(unique(x[!is.na(x)])), integer(1)),",
+    "    stringsAsFactors = FALSE",
+    "  )",
+    "  knitr::kable(var_tbl, caption = 'Variable summary (analysis dataset)', row.names = FALSE)",
+    "  num_vars <- names(d)[vapply(d, is.numeric, logical(1))]",
+    "  if (length(num_vars)) {",
+    "    num_tbl <- do.call(rbind, lapply(num_vars, function(v) {",
+    "      x <- d[[v]]",
+    "      data.frame(",
+    "        Variable = v,",
+    "        Mean = round(mean(x, na.rm = TRUE), 3),",
+    "        SD = round(stats::sd(x, na.rm = TRUE), 3),",
+    "        Min = round(min(x, na.rm = TRUE), 3),",
+    "        Max = round(max(x, na.rm = TRUE), 3),",
+    "        stringsAsFactors = FALSE",
+    "      )",
+    "    }))",
+    "    knitr::kable(num_tbl, caption = 'Numeric variable statistics', row.names = FALSE)",
+    "  }",
+    "} else {",
+    "  cat('No data was provided to the report.\\n')",
+    "}",
+    "dc <- params$data_cleaning",
+    "src <- or_else(params$data_provenance$Source, 'uploaded')",
+    "show_upload_impute <- !is.null(dc) && !identical(src, 'simulated') &&",
+    "  (isTRUE(dc$used_mice) || (dc$mode %in% c('impute','both')))",
+    "if (is.null(dc)) {",
+    "  cat('\\nComplete data used.\\n')",
+    "} else if (isTRUE(show_upload_impute)) {",
+    "  dc_tbl <- data.frame(",
+    "    Field = c(",
+    "      'Cleaning mode', 'Message',",
+    "      'Dropped rows', 'Dropped columns', 'Threshold-dropped columns',",
+    "      'MICE m', 'MICE maxit', 'MICE default method', 'MICE seed', 'Completed dataset index',",
+    "      'Unimputed columns', 'Post-impute missing columns'",
+    "    ),",
+    "    Value = c(",
+    "      as.character(or_else(dc$mode, '')),",
+    "      as.character(or_else(dc$message, '')),",
+    "      as.character(or_else(dc$dropped_rows, '')),",
+    "      paste(or_else(dc$dropped_columns, character(0)), collapse = ', '),",
+    "      paste(or_else(dc$threshold_dropped_columns, character(0)), collapse = ', '),",
+    "      as.character(or_else(dc$mice_parameters$m, '')),",
+    "      as.character(or_else(dc$mice_parameters$maxit, '')),",
+    "      as.character(or_else(dc$mice_parameters$method_default, '')),",
+    "      as.character(or_else(dc$mice_parameters$seed, '')),",
+    "      as.character(or_else(dc$mice_parameters$completed_dataset, '')),",
+    "      paste(or_else(dc$mice_parameters$unimputed_columns, character(0)), collapse = ', '),",
+    "      paste(or_else(dc$post_impute_missing_columns, character(0)), collapse = ', ')",
+    "    ),",
+    "    stringsAsFactors = FALSE",
+    "  )",
+    "  knitr::kable(dc_tbl, caption = 'Data cleaning details (uploaded data)', row.names = FALSE)",
+    "} else if (isTRUE(dc$used_mice)) {",
+    "  dc_tbl <- data.frame(",
+    "    Field = c('Cleaning mode', 'Message', 'MICE m', 'MICE maxit', 'MICE default method', 'MICE seed', 'Completed dataset index'),",
+    "    Value = c(",
+    "      as.character(or_else(dc$mode, 'impute')),",
+    "      as.character(or_else(dc$message, 'MICE imputation used.')),",
+    "      as.character(or_else(dc$mice_parameters$m, '')),",
+    "      as.character(or_else(dc$mice_parameters$maxit, '')),",
+    "      as.character(or_else(dc$mice_parameters$method_default, '')),",
+    "      as.character(or_else(dc$mice_parameters$seed, '')),",
+    "      as.character(or_else(dc$mice_parameters$completed_dataset, '1'))",
+    "    ),",
+    "    stringsAsFactors = FALSE",
+    "  )",
+    "  knitr::kable(dc_tbl, caption = 'Data cleaning details (MICE)', row.names = FALSE)",
+    "} else {",
+    "  cat('\\n', as.character(or_else(dc$message, 'Complete data used.')), '\\n', sep = '')",
+    "}",
+    "```",
+    "",
+    "# 5) Console Output",
     "```{r console-log, results='asis', echo=FALSE, eval = !is.null(params$log)}",
     "cat(params$log)",
+    "```",
+    "",
+    "# 6) Reproducibility",
+    "```{r reproducibility, echo=FALSE, eval = !is.null(params$reproducibility)}",
+    "rep <- params$reproducibility",
+    "rep_df <- data.frame(",
+    "  Field = c('Timestamp', 'Seed (simulation)', 'Seed (repeated)', 'R version'),",
+    "  Value = c(as.character(rep$timestamp %||% ''), as.character(rep$sim_seed %||% ''), as.character(rep$seed_reps %||% ''), as.character(rep$r_version %||% '')),",
+    "  stringsAsFactors = FALSE",
+    ")",
+    "knitr::kable(rep_df, caption = 'Reproducibility snapshot', row.names = FALSE)",
+    "if (!is.null(rep$package_versions) && nrow(rep$package_versions)) {",
+    "  knitr::kable(rep$package_versions, caption = 'Package versions', row.names = FALSE)",
+    "}",
+    "if (!is.null(rep$session_info)) {",
+    "  cat('\\n\\nSession info:\\n')",
+    "  cat(rep$session_info)",
+    "}",
     "```"
   )
   writeLines(txt, tf)
@@ -632,7 +797,11 @@ report_inputs_builder <- function(input) {
     L               = input$L,
     alpha           = input$alpha,
     sample_sizes    = input$sample_sizes,
-    target_power    = input$target_power
+    target_power    = input$target_power,
+    sim_seed        = input$sim_seed,
+    seed_reps       = input$seed_reps,
+    replications    = input$R_reps,
+    data_mode       = input$data_mode
   )
 }
 
@@ -659,13 +828,16 @@ ui <- fluidPage(
       }
       body {
         color: var(--pb-ink);
+        font-size: 1.03rem;
+        line-height: 1.5;
         background:
           radial-gradient(circle at 8% 6%, rgba(11, 110, 79, 0.10), transparent 28%),
           radial-gradient(circle at 93% 14%, rgba(255, 122, 24, 0.14), transparent 24%),
           linear-gradient(135deg, var(--pb-bg-1), var(--pb-bg-2));
       }
       .container-fluid {
-        max-width: 1580px;
+        width: 100%;
+        max-width: none;
       }
       .app-shell {
         animation: shell-enter 420ms ease-out both;
@@ -680,6 +852,15 @@ ui <- fluidPage(
       }
       .well, .panel, .tab-content, .shiny-input-container {
         border-radius: 14px;
+      }
+      .form-control, .selectize-input, .irs, .btn, .shiny-input-container label {
+        font-size: 1rem;
+      }
+      .shiny-input-container {
+        margin-bottom: 14px;
+      }
+      .well {
+        padding: 18px;
       }
       .well, .panel-default > .panel-heading, .tab-content {
         border: 1px solid var(--pb-border);
@@ -725,7 +906,7 @@ ui <- fluidPage(
         background: rgba(255, 255, 255, 0.92);
         border: 1px solid var(--pb-border);
         border-radius: 14px;
-        padding: 14px 16px;
+        padding: 18px 20px;
         margin-bottom: 14px;
       }
       .section-title {
@@ -753,7 +934,7 @@ ui <- fluidPage(
           padding-right: 10px;
         }
         .well {
-          padding: 12px;
+          padding: 14px;
         }
       }
     "))
@@ -767,61 +948,100 @@ ui <- fluidPage(
     sidebarPanel(
       width = 4,
       # Step 1: Data (Upload or Generate)
-      wellPanel(
+      div(id = "step1_panel", wellPanel(
         h4("Step 1. Upload/Generate Data"),
         radioButtons("data_mode", "Choose data source:", choices = c("Upload", "Generate"), inline = TRUE),
-        shinyjs::hidden(div(id = "upload_panel", fileInput("pilot_data_upload", "Upload Pilot Data (.csv)", accept = ".csv"))),
+        shinyjs::hidden(div(
+          id = "upload_panel",
+          fileInput(
+            "pilot_data_upload",
+            "Upload Pilot Data (.csv, .txt, .tsv, .rds, .RData)",
+            accept = c(".csv", ".txt", ".tsv", ".rds", ".RData", ".rdata")
+          ),
+          fluidRow(
+            column(6, downloadButton("download_csv_template", "Download CSV Template")),
+            column(6, downloadButton("download_toy_pilot", "Download Toy Pilot Data"))
+          ),
+          helpText("Quick format check: status uses 1=event, 0=censored; arm must contain exactly 2 groups."),
+          helpText("Privacy: Uploaded data is used for in-session computation and is not persisted by this app.")
+        )),
         shinyjs::hidden(div(
           id = "simulate_panel",
-          h5("1a. Covariate Builder"),
-          # Row 1: name/type
-          fluidRow(
-            column(6, textInput("cov_name", "Variable name", value = "", placeholder = "x1, x2 ... auto if empty")),
-            column(6, selectInput("cov_type", "Type", choices = c("continuous","categorical")))
-          ),
-          # Continuous vs Categorical UI
-          uiOutput("cov_details_ui"),
-          # Transform (continuous only)
-          shinyjs::hidden(div(id = "transform_block",
-                              tags$hr(),
-                              h5("Transform (continuous only)"),
-                              fluidRow(
-                                column(6, numericInput("tf_center", "Location (center a)", value = 0)),
-                                column(6, numericInput("tf_scale",  "Scale (divide by b)", value = 1, min = 0.0001, step = 0.1))
-                              ),
-                              helpText("Applied after generation: (x - a) / b")
-          )),
-          fluidRow(
-            column(6, actionButton("add_cov", "Add covariate", icon = icon("plus"), class = "btn btn-success")),
-            column(6, actionButton("reset_cov_builder", "Reset builder", icon = icon("trash")))
-          ),
-          br(), DTOutput("cov_table"),
-          div(style="margin-top:8px;",
-              actionButton("remove_cov", "Remove selected covariate", icon = icon("minus"))
-          ),
-          tags$hr(),
-          h5("1b. Simulation Settings"),
-          fluidRow(
-            column(4, numericInput("sim_n", "Sample size", value = 300, min = 10)),
-            column(4, textInput("sim_allocation", "Allocation (a:b)", value = "1:1")),
-            column(4, numericInput("sim_treat_eff", "Treatment beta (arm)", value = -0.2, step = 0.05))
-          ),
-          fluidRow(
-            column(6, checkboxInput("intercept_in_mm", "Include intercept in model.matrix (beta0 inside beta)", value = TRUE)),
-            column(6, numericInput("user_intercept", "beta0 (used if no intercept in model.matrix)", value = 0))
-          ),
-          fluidRow(
-            column(6, selectInput("sim_model", "Event-time model",
-                                  choices = c("aft_lognormal","aft_weibull","ph_exponential","ph_weibull","ph_pwexp"))),
-            column(6, sliderInput("sim_cens", "Target censoring", min = 0, max = 0.9, value = 0.25, step = 0.01))
-          ),
-          fluidRow(column(12, uiOutput("sim_baseline_ui"))),
-          fluidRow(
-            column(4, numericInput("sim_seed", "Seed (optional)", value = NA)),
-            column(4, actionButton("generate_sim", "Generate Pilot Dataset", icon = icon("gears"), class = "btn btn-primary")),
-            column(4, actionButton("reset_generate", "Reset data", icon = icon("trash")))
+          bslib::accordion(
+            id = "step1_accordion",
+            bslib::accordion_panel(
+              title = "1a. Covariate Builder",
+              # Row 1: name/type
+              fluidRow(
+                column(6, textInput("cov_name", "Variable name", value = "", placeholder = "x1, x2 ... auto if empty")),
+                column(6, selectInput("cov_type", "Type", choices = c("continuous","categorical")))
+              ),
+              uiOutput("cov_details_ui"),
+              shinyjs::hidden(div(id = "transform_block",
+                                  tags$hr(),
+                                  h5("Transform (continuous only)"),
+                                  fluidRow(
+                                    column(6, numericInput("tf_center", "Location (center a)", value = 0)),
+                                    column(6, numericInput("tf_scale",  "Scale (divide by b)", value = 1, min = 0.0001, step = 0.1))
+                                  ),
+                                  helpText("Applied after generation: (x - a) / b")
+              )),
+              fluidRow(
+                column(6, actionButton("add_cov", "Add covariate", icon = icon("plus"), class = "btn btn-success")),
+                column(6, actionButton("reset_cov_builder", "Reset builder", icon = icon("trash")))
+              ),
+              br(), DTOutput("cov_table"),
+              div(style="margin-top:8px;",
+                  actionButton("remove_cov", "Remove selected covariate", icon = icon("minus"))
+              ),
+              tags$hr(),
+              fluidRow(
+                column(6, actionButton("confirm_covariates", "Confirm Covariates", icon = icon("check"), class = "btn btn-primary")),
+                column(6, div())
+              )
+            ),
+            bslib::accordion_panel(
+              title = "1b. Event Time Settings",
+              fluidRow(
+                column(4, numericInput("sim_n", "Sample size", value = 300, min = 10)),
+                column(4, textInput("sim_allocation", "Allocation (a:b)", value = "1:1")),
+                column(4, numericInput("sim_treat_eff", "Treatment beta (arm)", value = -0.2, step = 0.05))
+              ),
+              fluidRow(
+                column(6, checkboxInput("intercept_in_mm", "Include intercept in model.matrix (beta0 inside beta)", value = TRUE)),
+                column(6, numericInput("user_intercept", "beta0 (used if no intercept in model.matrix)", value = 0))
+              ),
+              fluidRow(
+                column(6, selectInput("sim_model", "Event-time model",
+                                      choices = c(
+                                        "AFT (Lognormal)" = "aft_lognormal",
+                                        "AFT (Weibull)" = "aft_weibull",
+                                        "PH (Exponential)" = "ph_exponential",
+                                        "PH (Weibull)" = "ph_weibull",
+                                        "PH (Piecewise Exponential)" = "ph_pwexp"
+                                      ))),
+                column(6, sliderInput("sim_cens", "Target censoring", min = 0, max = 0.9, value = 0.25, step = 0.01))
+              ),
+              tags$hr(),
+              fluidRow(
+                column(4, numericInput("sim_seed", "Seed (optional)", value = NA)),
+                column(4, actionButton("generate_sim", "Generate Data", icon = icon("gears"), class = "btn btn-primary")),
+                column(4, actionButton("reset_generate", "Reset data", icon = icon("trash")))
+              ),
+              fluidRow(column(12, uiOutput("sim_baseline_ui"))),
+              uiOutput("sim_validation_ui")
+            ),
+            open = c("1a. Covariate Builder")
           )
         ))
+      )),
+      shinyjs::hidden(
+        wellPanel(
+          id = "data_cleaning_panel",
+          h4("Step 1b. Data Cleaning (Upload Only)"),
+          uiOutput("cleaning_ready_badge_ui"),
+          uiOutput("data_cleaning_sidebar_ui")
+        )
       ),
       
       # Step 2+3: Model + Analysis (hidden until data ready)
@@ -837,10 +1057,17 @@ ui <- fluidPage(
                                               "Multiplicative Stratified Model","Semiparametric (GAM) Model",
                                               "Dependent Censoring Model"),
                                   selected = "Linear IPCW Model")),
-            column(4, numericInput("L", "RMST L (tau)", value = 365, min = 1))
+            column(4, numericInput("L", tagList("RMST tau ", tags$span(icon("circle-info"), title = "Restriction/truncation time for RMST")), value = 365, min = 1))
           ),
           # NEW: Analytical vs Repeated
           radioButtons("calc_method", "Calculation Method", choices = c("Analytical", "Repeated"), selected = "Analytical", inline = TRUE),
+          helpText("Analytical: formula-based and typically fast. Repeated: simulation-based, slower, reports Monte Carlo uncertainty."),
+          conditionalPanel(
+            condition = "input.calc_method == 'Repeated' && input.R_reps >= 2000",
+            div(class = "alert alert-warning",
+                strong("Runtime warning: "),
+                "High replication settings can take substantial time. Consider Analytical mode for quick iteration.")
+          ),
           uiOutput("analysis_inputs_ui"),
           conditionalPanel(
             condition = "input.calc_method == 'Repeated'",
@@ -850,17 +1077,29 @@ ui <- fluidPage(
             )
           ),
           sliderInput("alpha", "Significance Level (alpha)", min = 0.01, max = 0.1, value = 0.05, step = 0.01),
-          tags$hr(),
+          uiOutput("run_checklist_ui"),
+          uiOutput("missing_warning_ui"),
           fluidRow(
+            column(6, actionButton("confirm_step2", "Confirm Step 2", icon = icon("check"), class = "btn btn-info")),
+            column(6, actionButton("reset_workflow", "Reset Workflow", icon = icon("trash"), class = "btn btn-warning"))
+          ),
+          uiOutput("calc_steps_ui"),
+          tags$hr(),
+          shinyjs::hidden(fluidRow(
+            id = "analysis_run_panel",
             column(4, actionButton("run_analysis", "Run Analysis", icon = icon("play"), class = "btn-primary btn-lg")),
             column(8, shinyjs::hidden(
               div(id="download_reset_row",
                   downloadButton("download_report_pdf", "Download PDF"),
                   downloadButton("download_report_html", "Download HTML"),
-                  actionButton("reset_all", "Reset All", icon = icon("trash"))
+                  actionButton("reset_all", "Reset All", icon = icon("trash")),
+                  tags$div(
+                    class = "metric-note",
+                    "PDF export requires a LaTeX engine (MiKTeX/TinyTeX). If PDF fails, install missing LaTeX packages and retry."
+                  )
               )
             ))
-          )
+          ))
         )
       )
     ),
@@ -869,44 +1108,15 @@ ui <- fluidPage(
       width = 8,
       tabsetPanel(
         id = "main_tabs",
-                tabPanel("Instructions",
-                 div(
-                   class = "section-card",
-                   h3(class = "section-title", "Welcome to RMSTpowerBoost"),
-                   p(class = "section-lead", "A structured workflow for RMST-based power and sample size design from pilot data."),
-                   tags$ol(
-                     tags$li("Step 1: Prepare data."),
-                     tags$li("Step 2: Map columns and configure model + analysis method."),
-                     tags$li("Step 3: Run analysis and review plots/tables."),
-                     tags$li("Step 4: Export PDF or HTML report.")
-                   )
-                 ),
-                 div(
-                   class = "section-card",
-                   h4(class = "section-title", "Data Paths"),
-                   tags$ul(
-                     tags$li(strong("Upload"), ": Select a CSV pilot dataset."),
-                     tags$li(strong("Generate"), ": Define covariates, event-time model, censoring target, and coefficients.")
-                   ),
-                   p(class = "section-lead", "Use generated data for method exploration, and uploaded data for final planning.")
-                 ),
-                 div(
-                   class = "section-card",
-                   h4(class = "section-title", "Column Mapping Rules"),
-                   tags$ul(
-                     tags$li("Time must be finite and > 0."),
-                     tags$li("Status must map to binary event/censor coding."),
-                     tags$li("Treatment arm must contain exactly two groups."),
-                     tags$li("Stratified models require a mapped stratum variable.")
-                   )
-                 ),
-                 div(
-                   class = "section-card",
-                   h4(class = "section-title", "License Information"),
-                   verbatimTextOutput("license_display")
-                 )
-        ),        tabPanel("Data Preview", DT::dataTableOutput("data_preview_table")),
-                tabPanel("Plot Output",
+        tabPanel(
+          "Pipeline",
+          div(class = "section-card", uiOutput("pipeline_page_ui"))
+        ),
+        tabPanel("Data Preview",
+                 uiOutput("data_export_ui"),
+                 uiOutput("missing_profile_ui"),
+                 DT::dataTableOutput("data_preview_table")),
+        tabPanel("Plot Output",
                  div(
                    class = "section-card",
                    h4(class = "section-title", "Covariate Distributions"),
@@ -926,7 +1136,13 @@ ui <- fluidPage(
                    span(class = "metric-note", "Primary planning output"),
                    plotlyOutput("results_plot", height = "520px")
                  )
-        ),                tabPanel("Summary",
+        ),
+        tabPanel("Summary",
+                 div(
+                   class = "section-card",
+                   h4(class = "section-title", "Key Results"),
+                   uiOutput("key_results_ui")
+                 ),
                  div(
                    class = "section-card",
                    h4(class = "section-title", "Power and Sample Size Results"),
@@ -942,7 +1158,9 @@ ui <- fluidPage(
                    h4(class = "section-title", "Data Summary"),
                    uiOutput("data_summary_ui")
                  )
-        ),        tabPanel("Console Log", verbatimTextOutput("console_log_output"))
+        ),
+        tabPanel("Run Log", uiOutput("run_log_summary_ui"), verbatimTextOutput("console_log_output")),
+        tabPanel("About", uiOutput("about_tab_ui"))
       )
     )
   ))
@@ -1014,9 +1232,79 @@ repeated_power_from_pilot <- function(pilot_df, time_var, status_var, arm_var,
 
 # ------------------ Server ------------------
 server <- function(input, output, session) {
-  bslib::bs_themer()
-  license_content <- tryCatch(paste(readLines("LICENSE"), collapse = "\n"), error = function(e) "LICENSE not found.")
-  output$license_display <- renderPrint({ cat(license_content) })
+  if (interactive()) bslib::bs_themer()
+  license_content <- tryCatch(paste(readLines("LICENSE", warn = FALSE), collapse = "\n"), error = function(e) "LICENSE not found.")
+  output$pipeline_page_ui <- renderUI({
+    p <- pipeline_html_path()
+    if (!nzchar(p)) return(div(class = "alert alert-warning", "Pipeline documentation not found."))
+    includeHTML(p)
+  })
+  output$about_tab_ui <- renderUI({
+    tags$div(
+      class = "section-card",
+      h3(class = "section-title", "About RMSTpowerBoost"),
+      p(
+        class = "section-lead",
+        "This app supports RMST-based power and sample size design with upload and simulation workflows."
+      ),
+      tags$h4(class = "section-title", "License"),
+      tags$pre(style = "white-space: pre-wrap;", license_content),
+      tags$h4(class = "section-title", "Report a Bug"),
+      tags$p(
+        tags$a(
+          href = "https://github.com/UTHSC-Zhang/RMSTpowerBoost-Package/issues",
+          target = "_blank",
+          rel = "noopener noreferrer",
+          "Open issue tracker"
+        )
+      ),
+      tags$h4(class = "section-title", "Coverage"),
+      tags$p(
+        tags$a(
+          href = "https://codecov.io/github/arnabaich96/RMSTpowerBoost-App",
+          target = "_blank",
+          rel = "noopener noreferrer",
+          tags$img(
+            src = "https://codecov.io/github/arnabaich96/RMSTpowerBoost-App/graph/badge.svg?token=5C7QOI1GAB",
+            alt = "Codecov badge"
+          )
+        )
+      ),
+      tags$p(
+        tags$a(
+          href = "https://codecov.io/github/arnabaich96/RMSTpowerBoost-App/graphs/sunburst.svg?token=5C7QOI1GAB",
+          target = "_blank",
+          rel = "noopener noreferrer",
+          "Coverage sunburst report"
+        )
+      ),
+      tags$h4(class = "section-title", "Citation / Contact"),
+      tags$p("RMSTpowerBoost supports linear IPCW, additive stratified, multiplicative stratified, semiparametric additive, and dependent censoring workflows."),
+      tags$p("Use this application for trial design exploration and planning; pilot data quality and model assumptions affect conclusions."),
+      tags$p("Citation text and maintainer contact can be finalized here."),
+      tags$h4(class = "section-title", "External Resources"),
+      tags$ul(
+        tags$li(tags$a(
+          href = "https://arnab96.shinyapps.io/uthsc-app/",
+          target = "_blank",
+          rel = "noopener noreferrer",
+          "Live application"
+        )),
+        tags$li(tags$a(
+          href = "https://uthsc-zhang.github.io/RMSTpowerBoost-Package/articles/RMSTpowerBoost-Main.html",
+          target = "_blank",
+          rel = "noopener noreferrer",
+          "Package documentation and source"
+        )),
+        tags$li(tags$a(
+          href = "https://github.com/arnabaich96/RMSTpowerBoost-App",
+          target = "_blank",
+          rel = "noopener noreferrer",
+          "App repository"
+        ))
+      )
+    )
+  })
   
   theme_palette <- reactive({
     th <- bslib::bs_current_theme()
@@ -1037,8 +1325,176 @@ server <- function(input, output, session) {
     console_buf = character(0),
     live_power_active = FALSE,
     live_power_points = data.frame(N = numeric(), Power = numeric(), stringsAsFactors = FALSE),
-    live_power_meta = list(xlab = "Sample size per arm", title = "Power vs. Sample Size", target_power = NULL)
+    live_power_meta = list(xlab = "Sample size per arm", title = "Power vs. Sample Size", target_power = NULL),
+    last_warning_lines = character(0),
+    last_error_lines = character(0),
+    auto_run_pending = FALSE,
+    effective_sim_seed = NULL,
+    effective_reps_seed = NULL,
+    data_df_raw_upload = NULL,
+    missing_summary = NULL,
+    cleaning_logs = character(0),
+    cleaning_mode = NULL,
+    cleaning_report = list(
+      mode = "complete_data",
+      used_mice = FALSE,
+      message = "Complete data used.",
+      mice_parameters = NULL
+    ),
+    cleaning_required = FALSE,
+    recommended_clean_mode = "ignore",
+    step2_confirmed = FALSE
   )
+
+  append_clean_log <- function(msg) {
+    stamp <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
+    rv$cleaning_logs <- c(rv$cleaning_logs, sprintf("[%s] %s", stamp, msg))
+  }
+
+  compute_missing_summary <- function(df) {
+    if (is.null(df) || !nrow(df)) return(NULL)
+    miss_n <- vapply(df, function(x) sum(is.na(x)), integer(1))
+    data.frame(
+      Column = names(df),
+      Type = vapply(df, function(x) class(x)[1], character(1)),
+      Missing_Count = as.integer(miss_n),
+      Missing_Percent = round(100 * miss_n / nrow(df), 3),
+      Non_Missing_Count = as.integer(nrow(df) - miss_n),
+      stringsAsFactors = FALSE
+    )
+  }
+  
+  parse_allocation_ratio <- function(x) {
+    xs <- trimws(as.character(x %||% ""))
+    if (!grepl("^[0-9]+\\s*:\\s*[0-9]+$", xs)) return(NULL)
+    parts <- as.numeric(trimws(strsplit(xs, ":", fixed = TRUE)[[1]]))
+    if (length(parts) != 2 || !isTRUE(all(is.finite(parts))) || any(parts <= 0, na.rm = TRUE)) return(NULL)
+    parts
+  }
+  
+  sim_validation <- reactive({
+    msgs <- character(0)
+    n_val <- suppressWarnings(as.numeric(input$sim_n))
+    if (!isTRUE(length(n_val) == 1 && is.finite(n_val) && n_val > 0 && abs(n_val - round(n_val)) <= 1e-8)) {
+      msgs <- c(msgs, "Sample size must be an integer greater than 0.")
+    }
+    if (is.null(parse_allocation_ratio(input$sim_allocation))) msgs <- c(msgs, "Allocation must be in a:b format with positive integers.")
+    c_val <- suppressWarnings(as.numeric(input$sim_cens))
+    if (!isTRUE(length(c_val) == 1 && is.finite(c_val) && c_val >= 0 && c_val <= 0.9)) {
+      msgs <- c(msgs, "Target censoring must be between 0 and 0.9.")
+    }
+    l_val <- suppressWarnings(as.numeric(input$L))
+    if (!isTRUE(length(l_val) == 1 && is.finite(l_val) && l_val > 0)) {
+      msgs <- c(msgs, "RMST tau must be greater than 0.")
+    }
+    model <- input$sim_model %||% "aft_lognormal"
+    if (identical(model, "aft_lognormal")) {
+      if (is.null(input$b_sigma)) msgs <- c(msgs, "Open '1b. Event Time Settings' to load Lognormal baseline inputs.")
+      sigma_val <- suppressWarnings(as.numeric(input$b_sigma))
+      if (!isTRUE(length(sigma_val) == 1 && is.finite(sigma_val) && sigma_val > 0)) {
+        msgs <- c(msgs, "For AFT (Lognormal), sigma must be greater than 0.")
+      }
+    } else if (identical(model, "aft_weibull")) {
+      if (is.null(input$b_shape) || is.null(input$b_scale)) msgs <- c(msgs, "Open '1b. Event Time Settings' to load Weibull baseline inputs.")
+      shape_val <- suppressWarnings(as.numeric(input$b_shape))
+      scale_val <- suppressWarnings(as.numeric(input$b_scale))
+      if (!isTRUE(length(shape_val) == 1 && is.finite(shape_val) && shape_val > 0 &&
+                  length(scale_val) == 1 && is.finite(scale_val) && scale_val > 0)) {
+        msgs <- c(msgs, "For AFT (Weibull), shape and scale must be greater than 0.")
+      }
+    } else if (identical(model, "ph_exponential")) {
+      if (is.null(input$b_rate)) msgs <- c(msgs, "Open '1b. Event Time Settings' to load Exponential baseline inputs.")
+      rate_val <- suppressWarnings(as.numeric(input$b_rate))
+      if (!isTRUE(length(rate_val) == 1 && is.finite(rate_val) && rate_val > 0)) {
+        msgs <- c(msgs, "For PH (Exponential), rate must be greater than 0.")
+      }
+    } else if (identical(model, "ph_weibull")) {
+      if (is.null(input$b_wshape2) || is.null(input$b_wscale2)) msgs <- c(msgs, "Open '1b. Event Time Settings' to load PH Weibull baseline inputs.")
+      w_shape_val <- suppressWarnings(as.numeric(input$b_wshape2))
+      w_scale_val <- suppressWarnings(as.numeric(input$b_wscale2))
+      if (!isTRUE(length(w_shape_val) == 1 && is.finite(w_shape_val) && w_shape_val > 0 &&
+                  length(w_scale_val) == 1 && is.finite(w_scale_val) && w_scale_val > 0)) {
+        msgs <- c(msgs, "For PH (Weibull), shape and scale must be greater than 0.")
+      }
+    } else if (identical(model, "ph_pwexp")) {
+      if (is.null(input$b_rates) || is.null(input$b_cuts)) msgs <- c(msgs, "Open '1b. Event Time Settings' to load piecewise-exponential baseline inputs.")
+      rates <- suppressWarnings(as.numeric(trimws(strsplit(input$b_rates %||% "", ",")[[1]])))
+      cuts_raw <- trimws(strsplit(input$b_cuts %||% "", ",")[[1]])
+      cuts <- if (length(cuts_raw) == 1 && !nzchar(cuts_raw)) numeric(0) else suppressWarnings(as.numeric(cuts_raw))
+      if (!length(rates) || !isTRUE(all(is.finite(rates))) || any(rates <= 0, na.rm = TRUE)) {
+        msgs <- c(msgs, "For PH (Piecewise Exponential), all rates must be numeric and greater than 0.")
+      }
+      if ((length(cuts) > 0 && !isTRUE(all(is.finite(cuts)))) ||
+          (length(cuts) > 1 && any(diff(cuts) <= 0, na.rm = TRUE))) {
+        msgs <- c(msgs, "For PH (Piecewise Exponential), cuts must be increasing numeric values.")
+      }
+    }
+    list(ok = !length(msgs), messages = msgs)
+  })
+  
+  mapping_resolved <- reactive({
+    df <- rv$data_df
+    if (is.null(df) || !nrow(df)) return(list(time_var = NULL, status_var = NULL, arm_var = NULL, strata_var = NULL))
+    cn <- names(df)
+    pick <- function(selected, candidates = character(0), fallback = NULL, exclude = character(0)) {
+      cn_use <- setdiff(cn, exclude %||% character(0))
+      if (!is.null(selected) && nzchar(selected) && selected %in% cn) return(selected)
+      if (length(candidates)) {
+        low <- tolower(cn_use)
+        # exact then partial matches
+        for (cand in tolower(candidates)) {
+          hit <- which(low == cand)
+          if (length(hit)) return(cn_use[hit[1]])
+        }
+        for (cand in tolower(candidates)) {
+          hit <- grep(cand, low, fixed = TRUE)
+          if (length(hit)) return(cn_use[hit[1]])
+        }
+      }
+      if (!is.null(fallback) && fallback >= 1 && fallback <= length(cn_use)) return(cn_use[fallback])
+      NULL
+    }
+    time_var <- pick(input$time_var, candidates = c("time", "tte", "time_to_event", "followup_time"), fallback = 1)
+    status_var <- pick(
+      input$status_var,
+      candidates = c("status", "event", "delta", "censor_status"),
+      fallback = 1,
+      exclude = c(time_var)
+    )
+    arm_var <- pick(
+      input$arm_var,
+      candidates = c("arm", "treatment", "trt", "group", "tx"),
+      fallback = 1,
+      exclude = c(time_var, status_var)
+    )
+    strata_var <- if (!is.null(input$strata_var) && nzchar(input$strata_var) && input$strata_var %in% cn) input$strata_var else NULL
+    list(time_var = time_var, status_var = status_var, arm_var = arm_var, strata_var = strata_var)
+  })
+  
+  analysis_checklist <- reactive({
+    out <- list()
+    df <- rv$data_df
+    m <- mapping_resolved()
+    out$data_available <- !is.null(df) && nrow(df) > 0
+    out$time_mapped <- out$data_available && !is.null(m$time_var) && nzchar(m$time_var) && (m$time_var %in% names(df))
+    out$status_mapped <- out$data_available && !is.null(m$status_var) && nzchar(m$status_var) && (m$status_var %in% names(df))
+    out$arm_mapped <- out$data_available && !is.null(m$arm_var) && nzchar(m$arm_var) && (m$arm_var %in% names(df))
+    out$status_binary <- FALSE
+    out$arm_two_groups <- FALSE
+    if (isTRUE(out$status_mapped)) out$status_binary <- !inherits(try(coerce_status_binary(df[[m$status_var]], m$status_var), silent = TRUE), "try-error")
+    if (isTRUE(out$arm_mapped)) out$arm_two_groups <- !inherits(try(coerce_arm_binary(df[[m$arm_var]], m$arm_var), silent = TRUE), "try-error")
+    needs_strata <- (input$model_selection %in% c("Additive Stratified Model", "Multiplicative Stratified Model"))
+    out$strata_mapped <- !needs_strata || (!is.null(m$strata_var) && nzchar(m$strata_var) && m$strata_var %in% names(df))
+    out$analysis_target <- if (identical(input$analysis_type, "Power")) {
+      n_vec <- suppressWarnings(as.numeric(trimws(strsplit(input$sample_sizes %||% "100,150,200", ",")[[1]])))
+      any(is.finite(n_vec) & n_vec > 0)
+    } else {
+      tp <- suppressWarnings(as.numeric(input$target_power %||% 0.8))
+      is.finite(tp) && tp > 0 && tp <= 1
+    }
+    out$ready <- all(unlist(out[c("data_available","time_mapped","status_mapped","arm_mapped","status_binary","arm_two_groups","strata_mapped","analysis_target")]))
+    out
+  })
 
   init_live_power_plot <- function(xlab = "Sample size per arm",
                                    title = "Power vs. Sample Size",
@@ -1127,6 +1583,72 @@ server <- function(input, output, session) {
     shinyjs::toggle(id = "upload_panel", condition = input$data_mode == "Upload")
     shinyjs::toggle(id = "simulate_panel", condition = input$data_mode == "Generate")
   }, ignoreInit = FALSE)
+  
+  output$sim_validation_ui <- renderUI({
+    v <- sim_validation()
+    if (isTRUE(v$ok)) {
+      div(class = "alert alert-success", strong("Simulation settings look valid."))
+    } else {
+      div(class = "alert alert-warning",
+          strong("Please resolve the following before generating data:"),
+          tags$ul(lapply(v$messages, tags$li)))
+    }
+  })
+  
+  output$run_checklist_ui <- renderUI({
+    ck <- analysis_checklist()
+    mark <- function(ok) if (isTRUE(ok)) "\u2713" else "\u2717"
+    cls <- function(ok) if (isTRUE(ok)) "text-success" else "text-danger"
+    div(
+      class = "section-card",
+      h5("Run readiness checklist"),
+      tags$ul(
+        tags$li(class = cls(ck$data_available), sprintf("%s Data available", mark(ck$data_available))),
+        tags$li(class = cls(ck$time_mapped), sprintf("%s Time mapped", mark(ck$time_mapped))),
+        tags$li(class = cls(ck$status_binary), sprintf("%s Status mapped and binary", mark(ck$status_binary))),
+        tags$li(class = cls(ck$arm_two_groups), sprintf("%s Arm mapped with exactly two groups", mark(ck$arm_two_groups))),
+        tags$li(class = cls(ck$strata_mapped), sprintf("%s Strata mapped if required", mark(ck$strata_mapped))),
+        tags$li(class = cls(ck$analysis_target), sprintf("%s Analysis target input provided", mark(ck$analysis_target)))
+      )
+    )
+  })
+  
+  observe({
+    shinyjs::toggleState("run_analysis", condition = isTRUE(analysis_checklist()$ready))
+  })
+  
+  observe({
+    ready_for_run <- !is.null(rv$data_df) && nrow(rv$data_df) > 0 &&
+      !(identical(rv$data_source, "uploaded") && isTRUE(rv$cleaning_required))
+    shinyjs::toggle(id = "analysis_run_panel", condition = isTRUE(rv$step2_confirmed) && ready_for_run)
+  })
+  
+  observeEvent(input$confirm_step2, {
+    ready_for_step2 <- !is.null(rv$data_df) && nrow(rv$data_df) > 0 &&
+      !(identical(rv$data_source, "uploaded") && isTRUE(rv$cleaning_required))
+    if (!isTRUE(ready_for_step2)) {
+      showNotification("Resolve upload cleaning first before confirming Step 2.", type = "warning", duration = 8)
+      return()
+    }
+    if (!isTRUE(analysis_checklist()$ready)) {
+      showNotification("Complete checklist items in Step 2 before continuing to Step 3.", type = "warning", duration = 8)
+      return()
+    }
+    rv$step2_confirmed <- TRUE
+    showNotification("Step 2 confirmed. Step 3 analysis controls are unlocked.", type = "message")
+  })
+  
+  observeEvent(
+    list(
+      input$time_var, input$status_var, input$arm_var, input$strata_var,
+      input$model_selection, input$analysis_type, input$calc_method,
+      input$sample_sizes, input$target_power, input$alpha
+    ),
+    {
+      rv$step2_confirmed <- FALSE
+    },
+    ignoreInit = TRUE
+  )
   
   # ---------- Covariate details UI ----------
   output$cov_details_ui <- renderUI({
@@ -1386,6 +1908,15 @@ server <- function(input, output, session) {
     }
   })
   
+  observeEvent(input$confirm_covariates, {
+    if (!length(rv$covariates)) {
+      showNotification("Add at least one covariate before confirming.", type = "warning")
+      return()
+    }
+    bslib::accordion_panel_open("step1_accordion", "1b. Event Time Settings")
+    showNotification("Covariates confirmed. Continue with Event Time Settings.", type = "message")
+  })
+  
   
   # Baseline UI (grouped)
   output$sim_baseline_ui <- renderUI({
@@ -1403,25 +1934,173 @@ server <- function(input, output, session) {
     )
   })
   
+  output$download_csv_template <- downloadHandler(
+    filename = function() "rmst_template.csv",
+    contentType = "text/csv",
+    content = function(file) {
+      tmpl <- data.frame(
+        time = c(10.5, 8.2, 12.4, 5.6),
+        status = c(1, 0, 1, 0),
+        arm = c(0, 1, 0, 1),
+        strata = c("A", "A", "B", "B"),
+        x1 = c(0.2, -1.1, 0.5, 1.4),
+        x2 = c(56, 62, 49, 73)
+      )
+      utils::write.csv(tmpl, file, row.names = FALSE)
+    }
+  )
+  
+  output$download_toy_pilot <- downloadHandler(
+    filename = function() "rmst_toy_pilot.csv",
+    contentType = "text/csv",
+    content = function(file) {
+      set.seed(101)
+      n <- 50
+      toy <- data.frame(
+        time = round(rexp(n, rate = 0.08) + 0.2, 3),
+        status = rbinom(n, 1, 0.68),
+        arm = rep(c(0, 1), each = n/2),
+        strata = rep(c("A", "B"), each = n/2),
+        x1 = round(rnorm(n), 3),
+        x2 = round(runif(n, 40, 80), 2)
+      )
+      utils::write.csv(toy, file, row.names = FALSE)
+    }
+  )
+  
   # Upload
+  read_uploaded_dataset <- function(path, original_name) {
+    ext <- tolower(tools::file_ext(original_name %||% ""))
+    if (identical(ext, "csv")) {
+      return(utils::read.csv(path, check.names = FALSE))
+    }
+    if (ext %in% c("txt", "tsv")) {
+      df <- tryCatch(utils::read.delim(path, check.names = FALSE), error = function(e) NULL)
+      if (!is.null(df) && ncol(df) > 1) return(df)
+      df2 <- tryCatch(utils::read.csv(path, check.names = FALSE), error = function(e) NULL)
+      if (!is.null(df2)) return(df2)
+      stop("Could not parse text upload as TSV or CSV.", call. = FALSE)
+    }
+    if (identical(ext, "rds")) {
+      obj <- readRDS(path)
+      if (is.data.frame(obj)) return(obj)
+      if (is.matrix(obj)) return(as.data.frame(obj, check.names = FALSE))
+      stop("RDS file must contain a data.frame or matrix.", call. = FALSE)
+    }
+    if (ext %in% c("rdata", "rda")) {
+      e <- new.env(parent = emptyenv())
+      loaded <- load(path, envir = e)
+      if (!length(loaded)) stop("RData file does not contain any objects.", call. = FALSE)
+      objs <- mget(loaded, envir = e, inherits = FALSE)
+      pick_name <- names(objs)[which(vapply(objs, is.data.frame, logical(1)))[1]]
+      if (is.na(pick_name) || !nzchar(pick_name)) {
+        pick_name <- names(objs)[which(vapply(objs, is.matrix, logical(1)))[1]]
+        if (is.na(pick_name) || !nzchar(pick_name)) {
+          stop("RData file must contain a data.frame or matrix object.", call. = FALSE)
+        }
+      }
+      obj <- objs[[pick_name]]
+      if (is.matrix(obj)) obj <- as.data.frame(obj, check.names = FALSE)
+      return(obj)
+    }
+    stop("Unsupported upload type. Use CSV, TXT/TSV, RDS, or RData.", call. = FALSE)
+  }
+  
   observeEvent(input$pilot_data_upload, {
     req(input$pilot_data_upload)
-    df <- tryCatch(read.csv(input$pilot_data_upload$datapath, check.names = FALSE), error = function(e) NULL)
-    if (is.null(df) || !nrow(df)) { showNotification("Error reading CSV or empty data.", type = "error"); return() }
+    df <- tryCatch(
+      read_uploaded_dataset(input$pilot_data_upload$datapath, input$pilot_data_upload$name),
+      error = function(e) {
+        showNotification(paste("Error reading uploaded file:", conditionMessage(e)), type = "error", duration = 10)
+        NULL
+      }
+    )
+    if (is.null(df) || !nrow(df)) {
+      showNotification("Uploaded data is empty or could not be parsed.", type = "error")
+      return()
+    }
+    rv$data_df_raw_upload <- df
+    rv$missing_summary <- compute_missing_summary(df)
+    rv$cleaning_logs <- character(0)
+    n_miss_total <- sum(is.na(df))
+    total_cells <- nrow(df) * ncol(df)
+    max_miss_pct <- if (ncol(df) > 0) max(100 * colMeans(is.na(df))) else 0
+    overall_miss_pct <- if (total_cells > 0) 100 * n_miss_total / total_cells else 0
+    rv$cleaning_required <- isTRUE(n_miss_total > 0)
+    rv$recommended_clean_mode <- if (!rv$cleaning_required) {
+      "ignore"
+    } else if (max_miss_pct >= 40) {
+      "both"
+    } else if (overall_miss_pct >= 5) {
+      "impute"
+    } else {
+      "ignore"
+    }
+    if (isTRUE(rv$cleaning_required)) {
+      append_clean_log(sprintf("Upload detected %d missing values across %d columns.", n_miss_total, ncol(df)))
+      append_clean_log(sprintf("Auto recommendation: %s", rv$recommended_clean_mode))
+      append_clean_log("Data cleaning is required before reliable analysis.")
+      rv$cleaning_report <- list(
+        mode = "pending",
+        used_mice = FALSE,
+        message = "Missing values detected in uploaded data. Data cleaning is required before analysis.",
+        mice_parameters = NULL
+      )
+    } else {
+      append_clean_log("Upload has no missing values. Data cleaning step skipped.")
+      rv$cleaning_report <- list(
+        mode = "complete_data",
+        used_mice = FALSE,
+        message = "Complete data used (no missing values detected in uploaded dataset).",
+        mice_parameters = NULL
+      )
+    }
     rv$data_df <- df
     rv$data_source <- "uploaded"
-    shinyjs::show(id = "model_analysis_panel")
+    rv$step2_confirmed <- FALSE
+    rv$auto_run_pending <- FALSE
     updateTabsetPanel(session, "main_tabs", selected = "Data Preview")
   })
   
   # Reset data (generation card)
   observeEvent(input$reset_generate, {
-    rv$data_df <- NULL; rv$data_source <- NULL
-    showNotification("Data reset.", type="message")
+    rv$data_df <- NULL
+    rv$data_df_raw_upload <- NULL
+    rv$missing_summary <- NULL
+    rv$cleaning_logs <- character(0)
+    rv$cleaning_mode <- NULL
+    rv$cleaning_report <- list(
+      mode = "complete_data",
+      used_mice = FALSE,
+      message = "Complete data used.",
+      mice_parameters = NULL
+    )
+    rv$cleaning_required <- FALSE
+    rv$recommended_clean_mode <- "ignore"
+    rv$step2_confirmed <- FALSE
+    rv$data_source <- NULL
+    rv$provenance <- NULL
+    rv$auto_run_pending <- FALSE
+    rv$covariates <- list()
+    rv$cat_rows <- tibble::tibble(cat = character(), prob = numeric(), coef = numeric())
+    reset_cov_builder_ui(session)
+    reset_cat_entry_ui(session)
+    updateTabsetPanel(session, "main_tabs", selected = "Pipeline")
+    shinyjs::show(id = "simulate_panel")
+    showNotification("Data and covariate builder reset.", type="message")
   })
   
   # Generate
   observeEvent(input$generate_sim, {
+    v <- sim_validation()
+    if (!isTRUE(v$ok)) {
+      showNotification(
+        paste(c("Cannot generate data:", v$messages), collapse = " "),
+        type = "error",
+        duration = 8
+      )
+      return()
+    }
     if (!length(rv$covariates)) { showNotification("Please add at least one covariate before simulating.", type = "warning"); return() }
     include_intercept <- isTRUE(input$intercept_in_mm)
     cov_defs <- lapply(rv$covariates, function(d){
@@ -1440,16 +2119,20 @@ server <- function(input, output, session) {
     beta_vec <- assemble_beta(cov_defs, user_betas, include_intercept = include_intercept, intercept_value = input$user_intercept)
     mm_cols  <- build_mm_columns(cov_defs, include_intercept = include_intercept)
     baseline <- switch(input$sim_model,
-                       "aft_lognormal" = list(mu = input$b_mu, sigma = input$b_sigma),
-                       "aft_weibull"   = list(shape = input$b_shape, scale = input$b_scale),
-                       "ph_exponential"= list(rate = input$b_rate),
-                       "ph_weibull"    = list(shape = input$b_wshape2, scale = input$b_wscale2),
+                       "aft_lognormal" = list(mu = as.numeric(input$b_mu), sigma = as.numeric(input$b_sigma)),
+                       "aft_weibull"   = list(shape = as.numeric(input$b_shape), scale = as.numeric(input$b_scale)),
+                       "ph_exponential"= list(rate = as.numeric(input$b_rate)),
+                       "ph_weibull"    = list(shape = as.numeric(input$b_wshape2), scale = as.numeric(input$b_wscale2)),
                        "ph_pwexp"      = {
-                         rates <- suppressWarnings(as.numeric(trimws(strsplit(input$b_rates, ",")[[1]])))
-                         cuts  <- trimws(strsplit(input$b_cuts, ",")[[1]])
+                         rates <- suppressWarnings(as.numeric(trimws(strsplit(input$b_rates %||% "", ",")[[1]])))
+                         cuts  <- trimws(strsplit(input$b_cuts %||% "", ",")[[1]])
                          cuts  <- if (length(cuts) == 1 && cuts == "") numeric(0) else suppressWarnings(as.numeric(cuts))
                          list(rates = rates, cuts = cuts)
                        })
+    if (any(vapply(baseline, function(x) any(!is.finite(as.numeric(x))), logical(1)))) {
+      showNotification("Baseline parameters are missing/invalid. Open '1b. Event Time Settings' and provide valid values.", type = "error")
+      return()
+    }
     form <- as.formula(paste0(if (include_intercept) "~ 1 +" else "~ -1 +",
                               paste(vapply(cov_defs, function(d) d$name, character(1)), collapse = " + ")))
     effects_list <- list(
@@ -1458,13 +2141,15 @@ server <- function(input, output, session) {
       formula   = deparse(form),
       beta      = beta_vec
     )
+    effective_sim_seed <- if (is.na(input$sim_seed)) sample.int(.Machine$integer.max, 1L) else as.integer(input$sim_seed)
+    rv$effective_sim_seed <- effective_sim_seed
     rec <- list(
       n = as.integer(input$sim_n),
       covariates = list(defs = cov_defs),
       treatment = list(assignment = "randomization", allocation = input$sim_allocation),
       event_time = list(model = input$sim_model, baseline = baseline, effects = effects_list),
       censoring = list(mode = "target_overall", target = input$sim_cens, admin_time = Inf),
-      seed = if (is.na(input$sim_seed)) NULL else as.integer(input$sim_seed)
+      seed = effective_sim_seed
     )
     buf <- capture.output({
       cat("---- Data Simulation ----\n"); print(str(rec))
@@ -1475,7 +2160,21 @@ server <- function(input, output, session) {
     dat <- tryCatch({ simulate_from_recipe(rec, seed = rec$seed) }, error = function(e) { showNotification(paste("Simulation failed:", e$message), type = "error"); NULL })
     if (is.null(dat)) return()
     rv$data_df <- dat
+    rv$data_df_raw_upload <- NULL
+    rv$missing_summary <- NULL
+    rv$cleaning_logs <- character(0)
+    rv$cleaning_mode <- NULL
+    rv$cleaning_report <- list(
+      mode = "complete_data",
+      used_mice = FALSE,
+      message = "Complete data used (generated dataset).",
+      mice_parameters = NULL
+    )
+    rv$cleaning_required <- FALSE
+    rv$recommended_clean_mode <- "ignore"
+    rv$step2_confirmed <- FALSE
     rv$data_source <- "simulated"
+    rv$auto_run_pending <- FALSE
     showNotification("Simulation complete.", type = "message")
     shinyjs::hide(id = "simulate_panel")
     shinyjs::show(id = "model_analysis_panel")
@@ -1587,9 +2286,319 @@ server <- function(input, output, session) {
       sliderInput("target_power", "Target Power", min = 0.1, max = 1, value = 0.8, step = 0.01)
     }
   })
+
+  observeEvent(rv$data_df, {
+    df <- rv$data_df
+    req(df)
+    cn <- names(df)
+    m <- mapping_resolved()
+    updateSelectInput(session, "time_var", choices = cn, selected = m$time_var)
+    updateSelectInput(session, "status_var", choices = cn, selected = m$status_var)
+    updateSelectInput(session, "arm_var", choices = cn, selected = m$arm_var)
+    if ("strata_var" %in% names(input)) {
+      cand_strata <- setdiff(cn, unique(na.omit(c(m$time_var, m$status_var, m$arm_var))))
+      updateSelectInput(
+        session,
+        "strata_var",
+        choices = cand_strata,
+        selected = if (!is.null(m$strata_var) && m$strata_var %in% cand_strata) m$strata_var else NULL
+      )
+    }
+  }, ignoreInit = FALSE)
   
   # Data Preview
   output$data_preview_table <- DT::renderDataTable({ req(rv$data_df); DT_25(rv$data_df) })
+
+  output$missing_profile_ui <- renderUI({
+    ms <- rv$missing_summary
+    if (is.null(ms) || !nrow(ms)) return(NULL)
+    div(
+      class = "section-card",
+      h4(class = "section-title", "Missingness Profile"),
+      kable_html_safe(ms, caption = "Missingness profile by column")
+    )
+  })
+  
+  output$missing_warning_ui <- renderUI({
+    if (is.null(rv$data_df) || !nrow(rv$data_df)) return(NULL)
+    miss_total <- sum(is.na(rv$data_df))
+    if (miss_total <= 0) return(NULL)
+    div(
+      class = "alert alert-warning",
+      sprintf("Warning: final analysis dataset currently contains %s missing values. Clean or impute before running analysis.", miss_total)
+    )
+  })
+  
+  output$calc_steps_ui <- renderUI({
+    tagList(
+      div(class = "metric-note", "Step 3 shows calculation progress and messages in Run Log."),
+      tags$ol(
+        tags$li("Validate mapped variables and cleaning status."),
+        tags$li("Prepare analysis data and run survival checks."),
+        tags$li("Compute power/sample-size curve based on selected method."),
+        tags$li("Populate plots, tables, and summary outputs.")
+      )
+    )
+  })
+
+  output$cleaning_ready_badge_ui <- renderUI({
+    if (!identical(rv$data_source, "uploaded")) return(NULL)
+    ms <- rv$missing_summary
+    if (is.null(ms) || !nrow(ms)) return(NULL)
+    if (sum(ms$Missing_Count) > 0) return(NULL)
+    div(
+      class = "alert alert-success",
+      "\u2713 Data cleaning complete. Missing values resolved. Analysis section is unlocked."
+    )
+  })
+  
+  output$data_cleaning_sidebar_ui <- renderUI({
+    if (!identical(rv$data_source, "uploaded")) {
+      return(div(class = "alert alert-info", "Data Cleaning appears here only for uploaded datasets."))
+    }
+    ms <- rv$missing_summary
+    if (is.null(ms) || !nrow(ms)) {
+      return(div(class = "alert alert-info", "No upload profiling available yet."))
+    }
+    total_missing <- sum(ms$Missing_Count)
+    missing_cols <- ms$Column[ms$Missing_Count > 0]
+    selected_mode <- isolate(input$clean_action_mode %||% rv$recommended_clean_mode %||% "ignore")
+    tagList(
+      div(
+        class = "section-card",
+        h4("Upload Data Verification"),
+        if (total_missing == 0) {
+          div(class = "alert alert-success", "No missing values found. Proceeding to analysis-ready data.")
+        } else {
+          div(class = "alert alert-warning", sprintf("Detected %s missing values across %s columns.", total_missing, sum(ms$Missing_Count > 0)))
+        }
+      ),
+      if (total_missing > 0) div(
+        class = "section-card",
+        h4("Cleaning Action"),
+        radioButtons(
+          "clean_action_mode",
+          "Choose missing-data handling strategy",
+          choices = c(
+            "1) Ignore missing values" = "ignore",
+            "2) Use imputation (MICE)" = "impute",
+            "3) Do both (drop + impute)" = "both"
+          ),
+          selected = selected_mode
+        ),
+        if ((input$clean_action_mode %||% selected_mode) %in% c("ignore", "both")) tagList(
+          radioButtons(
+            "ignore_drop_mode",
+            "For dropping, choose strategy",
+            choices = c("Drop rows with missing entries" = "rows", "Drop columns with missing entries" = "cols", "Drop both rows and columns" = "both"),
+            selected = "rows"
+          ),
+          selectizeInput("ignore_drop_cols", "Columns to drop (when column drop is selected)", choices = missing_cols, selected = missing_cols, multiple = TRUE),
+          if (total_missing > 0) div(class = "alert alert-info", "Selected rows/columns with missing entries will be dropped from further analysis.")
+        ),
+        if ((input$clean_action_mode %||% selected_mode) %in% c("impute", "both")) tagList(
+          fluidRow(
+            column(4, numericInput("mice_m", "Number of datasets (m)", value = 5, min = 1)),
+            column(4, numericInput("mice_maxit", "Iterations (maxit)", value = 5, min = 1)),
+            column(4, textInput("mice_seed", "Imputation seed (optional)", value = ""))
+          ),
+          selectInput("mice_method", "MICE method", choices = c("pmm", "norm", "cart", "rf"), selected = "pmm"),
+          if (identical(input$clean_action_mode %||% "", "both")) tagList(
+            sliderInput("drop_pct_threshold", "Drop columns with missing % above", min = 0, max = 100, value = 40, step = 1)
+          )
+        ),
+        actionButton("apply_data_cleaning", "Apply Data Cleaning", class = "btn btn-primary")
+      )
+    )
+  })
+  
+  observeEvent(input$apply_data_cleaning, {
+    req(identical(rv$data_source, "uploaded"))
+    df0 <- rv$data_df_raw_upload %||% rv$data_df
+    req(df0)
+    mode <- input$clean_action_mode %||% "ignore"
+    rv$cleaning_mode <- mode
+    append_clean_log(sprintf("Cleaning mode selected: %s", mode))
+    d <- df0
+    dropped_rows <- 0L
+    dropped_cols <- character(0)
+    threshold_dropped_cols <- character(0)
+    mice_details <- NULL
+    mice_used <- FALSE
+    mice_unimputed_cols <- character(0)
+    post_impute_missing_cols <- character(0)
+    if (mode %in% c("ignore", "both")) {
+      if (mode == "both") {
+        th <- as.numeric(input$drop_pct_threshold %||% 40)
+        miss_pct <- 100 * colMeans(is.na(d))
+        drop_by_th <- names(miss_pct)[miss_pct > th]
+        if (length(drop_by_th)) {
+          d <- d[, setdiff(names(d), drop_by_th), drop = FALSE]
+          threshold_dropped_cols <- unique(c(threshold_dropped_cols, drop_by_th))
+          dropped_cols <- unique(c(dropped_cols, drop_by_th))
+          append_clean_log(sprintf("Dropped %d columns above %.1f%% missingness: %s", length(drop_by_th), th, paste(drop_by_th, collapse = ", ")))
+        } else {
+          append_clean_log(sprintf("No columns exceeded %.1f%% missingness threshold.", th))
+        }
+      }
+      drop_mode <- input$ignore_drop_mode %||% "rows"
+      drop_cols <- intersect(input$ignore_drop_cols %||% character(0), names(d))
+      if (drop_mode %in% c("cols", "both") && length(drop_cols)) {
+        d <- d[, setdiff(names(d), drop_cols), drop = FALSE]
+        dropped_cols <- unique(c(dropped_cols, drop_cols))
+        append_clean_log(sprintf("Dropped selected columns: %s", paste(drop_cols, collapse = ", ")))
+      }
+      if (drop_mode %in% c("rows", "both")) {
+        before <- nrow(d)
+        keep <- stats::complete.cases(d)
+        d <- d[keep, , drop = FALSE]
+        dropped_rows <- as.integer(before - nrow(d))
+        append_clean_log(sprintf("Dropped %d rows containing missing values.", dropped_rows))
+      }
+    }
+    if (mode %in% c("impute", "both")) {
+      if (!requireNamespace("mice", quietly = TRUE)) {
+        showNotification("MICE package is required for imputation. Please install package 'mice'.", type = "error", duration = 10)
+        append_clean_log("Imputation skipped because package 'mice' is not installed.")
+      } else if (anyNA(d)) {
+        m_val <- as.integer(input$mice_m %||% 5)
+        maxit_val <- as.integer(input$mice_maxit %||% 5)
+        seed_txt <- trimws(input$mice_seed %||% "")
+        imp_seed <- if (nzchar(seed_txt)) suppressWarnings(as.integer(seed_txt)) else sample.int(.Machine$integer.max, 1L)
+        method_default <- input$mice_method %||% "pmm"
+        meth <- mice::make.method(d)
+        meth[meth != ""] <- method_default
+        missing_cols <- names(d)[colSums(is.na(d)) > 0]
+        mice_unimputed_cols <- intersect(missing_cols, names(meth)[meth == ""])
+        if (length(mice_unimputed_cols)) {
+          append_clean_log(sprintf(
+            "MICE will not impute %d columns with empty method: %s",
+            length(mice_unimputed_cols),
+            paste(mice_unimputed_cols, collapse = ", ")
+          ))
+        }
+        if (all(meth == "")) {
+          append_clean_log("Imputation skipped because no variables are eligible for MICE (all methods empty).")
+        } else {
+          append_clean_log(sprintf("Running MICE: m=%d, maxit=%d, method=%s, seed=%s", m_val, maxit_val, method_default, imp_seed))
+          imp <- tryCatch(
+            mice::mice(d, m = m_val, maxit = maxit_val, method = meth, seed = imp_seed, printFlag = FALSE),
+            error = function(e) {
+              append_clean_log(paste("MICE failed:", e$message))
+              showNotification(paste("MICE failed:", e$message), type = "error", duration = 10)
+              NULL
+            }
+          )
+          if (!is.null(imp)) {
+            d <- mice::complete(imp, 1)
+            mice_used <- TRUE
+            mice_details <- list(
+              m = m_val,
+              maxit = maxit_val,
+              method_default = method_default,
+              seed = imp_seed,
+              completed_dataset = 1L,
+              method_by_variable = as.list(meth),
+              unimputed_columns = mice_unimputed_cols
+            )
+            append_clean_log("Imputation complete. Using completed dataset #1 for analysis.")
+          }
+        }
+      } else {
+        append_clean_log("Imputation selected but no missing values remained after drop step.")
+      }
+    }
+    rv$data_df <- d
+    rv$missing_summary <- compute_missing_summary(d)
+    remaining <- sum(is.na(d))
+    post_impute_missing_cols <- names(d)[colSums(is.na(d)) > 0]
+    rv$cleaning_required <- isTRUE(remaining > 0)
+    rv$step2_confirmed <- FALSE
+    rv$cleaning_report <- list(
+      mode = mode,
+      used_mice = mice_used,
+      message = if (isTRUE(mice_used)) {
+        "MICE imputation was applied before analysis."
+      } else if (identical(mode, "ignore")) {
+        "Complete data used after dropping missing rows/columns."
+      } else if (identical(mode, "both")) {
+        "Drop + imputation pipeline applied. Final analysis dataset used."
+      } else {
+        "Complete data used."
+      },
+      dropped_rows = dropped_rows,
+      dropped_columns = dropped_cols,
+      threshold_dropped_columns = threshold_dropped_cols,
+      mice_parameters = mice_details,
+      post_impute_missing_columns = post_impute_missing_cols
+    )
+    append_clean_log(sprintf("Final analysis dataset dimensions: %d rows x %d columns. Remaining missing values: %d", nrow(d), ncol(d), remaining))
+    if (length(post_impute_missing_cols)) {
+      append_clean_log(sprintf("Columns with remaining missing values: %s", paste(post_impute_missing_cols, collapse = ", ")))
+    }
+    if (!rv$cleaning_required) {
+      append_clean_log("Data cleaning successful: missing values resolved. Step 2 is now available.")
+      updateTabsetPanel(session, "main_tabs", selected = "Data Preview")
+      showNotification("Data cleaning successful. Proceed to Step 2.", type = "message")
+    } else {
+      append_clean_log("Data cleaning applied but missing values still remain; adjust settings and re-apply.")
+      updateTabsetPanel(session, "main_tabs", selected = "Run Log")
+      showNotification("Missing values still remain after cleaning. Review Run Log and re-apply cleaning.", type = "warning", duration = 10)
+    }
+  })
+  
+  output$data_export_ui <- renderUI({
+    if (is.null(rv$data_df) || !nrow(rv$data_df)) return(NULL)
+    if (!identical(rv$data_source, "simulated")) {
+      return(div(class = "alert alert-info", "Data export controls are available for generated datasets."))
+    }
+    fluidRow(
+      column(
+        4,
+        selectInput(
+          "generated_data_format",
+          "Generated Data Format",
+          choices = c("CSV" = "csv", "TXT (Tab-delimited)" = "txt", "TSV" = "tsv", "RDS" = "rds", "RData" = "rdata"),
+          selected = "csv"
+        )
+      ),
+      column(
+        4,
+        br(),
+        downloadButton("download_generated_data", "Download Generated Data")
+      )
+    )
+  })
+  
+  output$download_generated_data <- downloadHandler(
+    filename = function() {
+      fmt <- input$generated_data_format %||% "csv"
+      ext <- switch(fmt, csv = "csv", txt = "txt", tsv = "tsv", rds = "rds", rdata = "RData", "csv")
+      paste0("RMSTpowerBoost_generated_", Sys.Date(), ".", ext)
+    },
+    contentType = "application/octet-stream",
+    content = function(file) {
+      if (is.null(rv$data_df) || !nrow(rv$data_df) || !identical(rv$data_source, "simulated")) {
+        writeLines("No generated dataset is currently available for export.", con = file, useBytes = TRUE)
+        return(invisible(NULL))
+      }
+      fmt <- input$generated_data_format %||% "csv"
+      if (identical(fmt, "csv")) {
+        utils::write.csv(rv$data_df, file, row.names = FALSE)
+      } else if (identical(fmt, "txt")) {
+        utils::write.table(rv$data_df, file, sep = "\t", row.names = FALSE, quote = TRUE)
+      } else if (identical(fmt, "tsv")) {
+        utils::write.table(rv$data_df, file, sep = "\t", row.names = FALSE, quote = TRUE)
+      } else if (identical(fmt, "rds")) {
+        saveRDS(rv$data_df, file = file)
+      } else if (identical(fmt, "rdata")) {
+        generated_data <- rv$data_df
+        save(generated_data, file = file)
+      } else {
+        utils::write.csv(rv$data_df, file, row.names = FALSE)
+      }
+    }
+  )
   
   # Covariate plots
   # UI container
@@ -1619,49 +2628,77 @@ server <- function(input, output, session) {
   # Run analysis
   run_output <- reactiveVal(list(results = NULL, log = "Analysis has not been run yet."))
   console_log <- reactiveVal("")
+  run_request <- reactiveVal(0L)
   
   # Keep power plot output alive even when its tab is hidden.
   # Register after outputs are initialized to avoid startup ordering issues.
   session$onFlushed(function() {
-    outputOptions(output, "results_plot", suspendWhenHidden = FALSE)
+    try(outputOptions(output, "results_plot", suspendWhenHidden = FALSE), silent = TRUE)
   }, once = TRUE)
   
   observeEvent(input$run_analysis, {
-    updateTabsetPanel(session, "main_tabs", selected = "Plots")
+    run_request(run_request() + 1L)
+    updateTabsetPanel(session, "main_tabs", selected = "Plot Output")
   }, ignoreInit = TRUE)
   
-  run_analysis_results <- eventReactive(input$run_analysis, {
-    validate(need(rv$data_df, "Please upload or simulate data first."))
-    validate(need(input$time_var, "Please map Time-to-Event column."))
-    validate(need(input$status_var, "Please map Status column."))
-    validate(need(input$arm_var, "Please map Treatment Arm column."))
-    if (input$model_selection %in% c("Additive Stratified Model", "Multiplicative Stratified Model")) {
-      validate(need(!is.null(input$strata_var) && nzchar(input$strata_var), "Please map a stratification variable for stratified models."))
+  observe({
+    ck <- analysis_checklist()
+    current_results <- run_output()$results
+    if (isTRUE(ck$ready) && is.null(current_results)) {
+      rv$auto_run_pending <- FALSE
     }
-    on.exit({ rv$live_power_active <- FALSE }, add = TRUE)
-    
-    analysis_results <- NULL
-    log_text <- capture.output({
-      withProgress(message = 'Running Analysis', value = 0, {
+  })
+  
+  run_analysis_results <- eventReactive(run_request(), {
+    tryCatch({
+      validate(need(isTRUE(analysis_checklist()$ready), "Complete all checklist items before running analysis."))
+      m <- mapping_resolved()
+      resolved_time_var <- m$time_var
+      resolved_status_var <- m$status_var
+      resolved_arm_var <- m$arm_var
+      resolved_strata_var <- m$strata_var
+      sample_sizes_input <- input$sample_sizes %||% "100,150,200"
+      target_power_input <- suppressWarnings(as.numeric(input$target_power %||% 0.8))
+      if (!is.finite(target_power_input) || target_power_input <= 0 || target_power_input > 1) target_power_input <- 0.8
+      reps_seed <- if (identical(input$calc_method, "Repeated")) {
+        if (is.na(input$seed_reps)) sample.int(.Machine$integer.max, 1L) else as.integer(input$seed_reps)
+      } else {
+        NULL
+      }
+      rv$effective_reps_seed <- reps_seed
+      validate(
+        need(!is.null(resolved_time_var) && resolved_time_var %in% names(rv$data_df), "Map a valid time column."),
+        need(!is.null(resolved_status_var) && resolved_status_var %in% names(rv$data_df), "Map a valid status column."),
+        need(!is.null(resolved_arm_var) && resolved_arm_var %in% names(rv$data_df), "Map a valid treatment arm column.")
+      )
+      on.exit({ rv$live_power_active <- FALSE }, add = TRUE)
+      
+      analysis_results <- NULL
+      log_text <- capture.output({
+        withProgress(message = 'Running Analysis', value = 0, {
+        cat("--- Analysis Start ---\n")
+        cat(sprintf("Model: %s | Method: %s | Type: %s\n", input$model_selection, input$calc_method, input$analysis_type))
         setProgress(0.2, detail = "Preparing analysis data...")
-        clean_time <- coerce_time_positive(rv$data_df[[input$time_var]], input$time_var)
-        clean_status <- coerce_status_binary(rv$data_df[[input$status_var]], input$status_var)
-        clean_arm <- coerce_arm_binary(rv$data_df[[input$arm_var]], input$arm_var)
+        cat("Preparing analysis data...\n")
+        clean_time <- coerce_time_positive(rv$data_df[[resolved_time_var]], resolved_time_var)
+        clean_status <- coerce_status_binary(rv$data_df[[resolved_status_var]], resolved_status_var)
+        clean_arm <- coerce_arm_binary(rv$data_df[[resolved_arm_var]], resolved_arm_var)
         pilot_data_clean <- rv$data_df
-        pilot_data_clean[[input$time_var]] <- clean_time
-        pilot_data_clean[[input$status_var]] <- clean_status
-        pilot_data_clean[[input$arm_var]] <- clean_arm
+        pilot_data_clean[[resolved_time_var]] <- clean_time
+        pilot_data_clean[[resolved_status_var]] <- clean_status
+        pilot_data_clean[[resolved_arm_var]] <- clean_arm
         analysis_data <- data.frame(
           time = clean_time,
           status = clean_status,
           arm = factor(clean_arm, levels = c(0, 1))
         )
-        if (!is.null(input$strata_var) && nzchar(input$strata_var) &&
+        if (!is.null(resolved_strata_var) && nzchar(resolved_strata_var) &&
             (input$model_selection %in% c("Additive Stratified Model","Multiplicative Stratified Model"))) {
-          analysis_data$stratum <- as.factor(pilot_data_clean[[input$strata_var]])
+          analysis_data$stratum <- as.factor(pilot_data_clean[[resolved_strata_var]])
         }
         # ----- Log-rank (stratified if applicable) -----
         setProgress(0.5, detail = "Log-rank test...")
+        cat("Running log-rank test...\n")
         logrank_summary_df <- NULL
         analysis_data_for_plot <- NULL
         km_note_text <- NULL
@@ -1669,14 +2706,16 @@ server <- function(input, output, session) {
           cat("\n--- Survival Analysis ---\n")
           if ("stratum" %in% names(analysis_data)) {
             fixed_formula <- as.formula("Surv(time, status) ~ arm + strata(stratum)")
-            km_note_text  <- sprintf("<em>Showing KM curves by arm within each stratum of <b>%s</b>.</em>", input$strata_var)
+            km_note_text  <- sprintf("<em>Showing KM curves by arm within each stratum of <b>%s</b>.</em>", resolved_strata_var)
           } else {
             fixed_formula <- as.formula("Surv(time, status) ~ arm")
             km_note_text  <- "<em>KM curves by arm.</em>"
           }
           logrank_test <- survdiff(fixed_formula, data = analysis_data)
-          print(logrank_test)
           p_value <- 1 - pchisq(logrank_test$chisq, length(logrank_test$n) - 1)
+          cat(sprintf("Log-rank completed. Chi-square=%.3f, df=%d, p-value=%s\n",
+                      logrank_test$chisq, length(logrank_test$n) - 1,
+                      format.pval(p_value, eps = .001, digits = 3)))
           logrank_summary_df <- data.frame(
             Statistic = "Chi-Square",
             Value = round(logrank_test$chisq, 3),
@@ -1688,8 +2727,9 @@ server <- function(input, output, session) {
         
         # ----- Power / Sample size -----
         setProgress(0.8, detail = if (input$calc_method == "Analytical") "Computing (analytical) ..." else "Computing (repeated) ...")
+        cat(sprintf("Computing %s %s...\n", tolower(input$calc_method), tolower(input$analysis_type)))
         if (input$analysis_type == "Power") {
-          n_vec <- as.numeric(trimws(strsplit(input$sample_sizes, ",")[[1]]))
+          n_vec <- as.numeric(trimws(strsplit(sample_sizes_input, ",")[[1]]))
           n_vec <- n_vec[is.finite(n_vec) & n_vec > 0]
           if (!length(n_vec)) n_vec <- c(100, 150, 200)
           iter_total <- length(n_vec)
@@ -1707,7 +2747,7 @@ server <- function(input, output, session) {
         init_live_power_plot(
           xlab = x_label_live,
           title = sprintf("Method: %s (%s)", tolower(input$calc_method), input$analysis_type),
-          target_power = if (input$analysis_type == "Sample Size") input$target_power else NULL
+          target_power = if (input$analysis_type == "Sample Size") target_power_input else NULL
         )
         point_cb <- function(n_value, power_value) {
           push_live_power_point(n_value, power_value)
@@ -1740,49 +2780,52 @@ server <- function(input, output, session) {
         if (input$calc_method == "Repeated") {
           R <- input$R_reps %||% 500
           if (input$analysis_type == "Power") {
+            cat(sprintf("Repeated method: estimating power at %d sample sizes with R=%d.\n", length(n_vec), R))
             power_df <- repeated_power_from_pilot(
-              pilot_data_clean, input$time_var, input$status_var, input$arm_var,
+              pilot_data_clean, resolved_time_var, resolved_status_var, resolved_arm_var,
               n_per_arm_vec = n_vec, alpha = input$alpha, R = R,
-              strata_var = if ("stratum" %in% names(analysis_data)) input$strata_var else NULL,
-              seed = if (is.na(input$seed_reps)) NULL else as.integer(input$seed_reps),
+              strata_var = if ("stratum" %in% names(analysis_data)) resolved_strata_var else NULL,
+              seed = reps_seed,
               point_cb = point_cb
             )
             results_plot <- make_power_plot(power_df, "repeated")
             results_data <- power_df
           } else {
             # search minimal N achieving target power
+            cat(sprintf("Repeated method: searching required N for target power %.3f with R=%d.\n", target_power_input, R))
             power_df <- repeated_power_from_pilot(
-              pilot_data_clean, input$time_var, input$status_var, input$arm_var,
+              pilot_data_clean, resolved_time_var, resolved_status_var, resolved_arm_var,
               n_per_arm_vec = grid, alpha = input$alpha, R = R,
-              strata_var = if ("stratum" %in% names(analysis_data)) input$strata_var else NULL,
-              seed = if (is.na(input$seed_reps)) NULL else as.integer(input$seed_reps),
+              strata_var = if ("stratum" %in% names(analysis_data)) resolved_strata_var else NULL,
+              seed = reps_seed,
               point_cb = point_cb
             )
-            meet <- subset(power_df, Power >= input$target_power)
+            meet <- subset(power_df, Power >= target_power_input)
             n_star <- if (nrow(meet)) min(meet$N_per_arm) else NA
             results_plot <- make_power_plot(power_df, "repeated") +
-              geom_hline(yintercept = input$target_power, linetype = 2) +
-              ggplot2::annotate("text", x = max(power_df$N_per_arm), y = input$target_power,
-                                label = sprintf("Target %.2f", input$target_power), hjust = 1, vjust = -0.5, size = 3.5)
+              geom_hline(yintercept = target_power_input, linetype = 2) +
+              ggplot2::annotate("text", x = max(power_df$N_per_arm), y = target_power_input,
+                                label = sprintf("Target %.2f", target_power_input), hjust = 1, vjust = -0.5, size = 3.5)
             results_data <- power_df
             if (!is.na(n_star)) {
-              results_plot <- results_plot + ggplot2::annotate("point", x = n_star, y = input$target_power, size = 4)
+              results_plot <- results_plot + ggplot2::annotate("point", x = n_star, y = target_power_input, size = 4)
             }
           }
         } else {
           # ----- ANALYTICAL BRANCH -----
+          cat("Analytical method: estimating parameters and asymptotic variance...\n")
           if (input$model_selection == "Dependent Censoring Model") {
             # Use the new DC analytic helpers
             if (input$analysis_type == "Power") {
-              n_vec <- as.numeric(trimws(strsplit(input$sample_sizes, ",")[[1]]))
+              n_vec <- as.numeric(trimws(strsplit(sample_sizes_input, ",")[[1]]))
               n_vec <- n_vec[is.finite(n_vec) & n_vec > 0]
               if (!length(n_vec)) n_vec <- c(100,150,200)
               
               dc <- DC.power.analytical.app(
                 pilot_data          = pilot_data_clean,
-                time_var            = input$time_var,
-                status_var          = input$status_var,
-                arm_var             = input$arm_var,
+                time_var            = resolved_time_var,
+                status_var          = resolved_status_var,
+                arm_var             = resolved_arm_var,
                 dep_cens_status_var = NULL,  # ignored by the estimator
                 sample_sizes        = n_vec,
                 linear_terms        = input$dc_linear_terms %||% character(0),
@@ -1797,11 +2840,11 @@ server <- function(input, output, session) {
             } else {
               dc <- DC.ss.analytical.app(
                 pilot_data          = pilot_data_clean,
-                time_var            = input$time_var,
-                status_var          = input$status_var,
-                arm_var             = input$arm_var,
+                time_var            = resolved_time_var,
+                status_var          = resolved_status_var,
+                arm_var             = resolved_arm_var,
                 dep_cens_status_var = NULL,  # ignored by the estimator
-                target_power        = input$target_power,
+                target_power        = target_power_input,
                 linear_terms        = input$dc_linear_terms %||% character(0),
                 L                   = input$L,
                 alpha               = input$alpha,
@@ -1819,9 +2862,9 @@ server <- function(input, output, session) {
             if (input$analysis_type == "Power") {
               lin <- linear.power.analytical.app(
                 pilot_data   = pilot_data_clean,
-                time_var     = input$time_var,
-                status_var   = input$status_var,
-                arm_var      = input$arm_var,
+                time_var     = resolved_time_var,
+                status_var   = resolved_status_var,
+                arm_var      = resolved_arm_var,
                 sample_sizes = n_vec,
                 linear_terms = NULL,
                 L            = input$L,
@@ -1831,10 +2874,10 @@ server <- function(input, output, session) {
             } else {
               lin <- linear.ss.analytical.app(
                 pilot_data    = pilot_data_clean,
-                time_var      = input$time_var,
-                status_var    = input$status_var,
-                arm_var       = input$arm_var,
-                target_power  = input$target_power,
+                time_var      = resolved_time_var,
+                status_var    = resolved_status_var,
+                arm_var       = resolved_arm_var,
+                target_power  = target_power_input,
                 linear_terms  = NULL,
                 L             = input$L,
                 alpha         = input$alpha,
@@ -1852,10 +2895,10 @@ server <- function(input, output, session) {
             if (input$analysis_type == "Power") {
               add <- additive.power.analytical.app(
                 pilot_data   = pilot_data_clean,
-                time_var     = input$time_var,
-                status_var   = input$status_var,
-                arm_var      = input$arm_var,
-                strata_var   = input$strata_var,
+                time_var     = resolved_time_var,
+                status_var   = resolved_status_var,
+                arm_var      = resolved_arm_var,
+                strata_var   = resolved_strata_var,
                 sample_sizes = n_vec,
                 linear_terms = NULL,
                 L            = input$L,
@@ -1865,11 +2908,11 @@ server <- function(input, output, session) {
             } else {
               add <- additive.ss.analytical.app(
                 pilot_data    = pilot_data_clean,
-                time_var      = input$time_var,
-                status_var    = input$status_var,
-                arm_var       = input$arm_var,
-                strata_var    = input$strata_var,
-                target_power  = input$target_power,
+                time_var      = resolved_time_var,
+                status_var    = resolved_status_var,
+                arm_var       = resolved_arm_var,
+                strata_var    = resolved_strata_var,
+                target_power  = target_power_input,
                 linear_terms  = NULL,
                 L             = input$L,
                 alpha         = input$alpha,
@@ -1887,10 +2930,10 @@ server <- function(input, output, session) {
             if (input$analysis_type == "Power") {
               mul <- MS.power.analytical.app(
                 pilot_data   = pilot_data_clean,
-                time_var     = input$time_var,
-                status_var   = input$status_var,
-                arm_var      = input$arm_var,
-                strata_var   = input$strata_var,
+                time_var     = resolved_time_var,
+                status_var   = resolved_status_var,
+                arm_var      = resolved_arm_var,
+                strata_var   = resolved_strata_var,
                 sample_sizes = n_vec,
                 linear_terms = NULL,
                 L            = input$L,
@@ -1900,11 +2943,11 @@ server <- function(input, output, session) {
             } else {
               mul <- MS.ss.analytical.app(
                 pilot_data    = pilot_data_clean,
-                time_var      = input$time_var,
-                status_var    = input$status_var,
-                arm_var       = input$arm_var,
-                strata_var    = input$strata_var,
-                target_power  = input$target_power,
+                time_var      = resolved_time_var,
+                status_var    = resolved_status_var,
+                arm_var       = resolved_arm_var,
+                strata_var    = resolved_strata_var,
+                target_power  = target_power_input,
                 linear_terms  = NULL,
                 L             = input$L,
                 alpha         = input$alpha,
@@ -1939,24 +2982,41 @@ server <- function(input, output, session) {
           analysis_data_for_plot = analysis_data_for_plot,
           km_note = km_note_text
         )
-      })
-    }, type = c("output","message"))
-    
-    console_log(paste(log_text, collapse = "\n"))
-    list(results = analysis_results, log = paste(log_text, collapse = "\n"))
-  })
+        if (is.null(analysis_results$results_plot) ||
+            is.null(analysis_results$results_data) ||
+            !is.data.frame(analysis_results$results_data) ||
+            !nrow(analysis_results$results_data)) {
+          stop("Analysis did not produce Power/Sample Size outputs. Check model/method compatibility and inputs.", call. = FALSE)
+        }
+        })
+      }, type = c("output","message"))
+      
+      joined_log <- paste(log_text, collapse = "\n")
+      console_log(joined_log)
+      list(results = analysis_results, log = joined_log)
+    }, error = function(e) {
+      msg <- paste("Analysis failed:", conditionMessage(e))
+      console_log(msg)
+      showNotification(msg, type = "error", duration = 10)
+      list(results = NULL, log = msg)
+    })
+  }, ignoreInit = TRUE)
   
   observeEvent(run_analysis_results(), {
     rv$live_power_active <- FALSE
     run_output(run_analysis_results())
+    log_lines <- strsplit(run_analysis_results()$log %||% "", "\n", fixed = TRUE)[[1]]
+    rv$last_warning_lines <- grep("warning", log_lines, ignore.case = TRUE, value = TRUE)
+    rv$last_error_lines <- grep("error", log_lines, ignore.case = TRUE, value = TRUE)
     shinyjs::show(id = "download_reset_row")
     updateTabsetPanel(session, "main_tabs", selected = "Summary")
   })
   
   # KM plots (faceted by stratum; at most 2 per row)
   output$km_note <- renderUI({
-    req(run_output()$results$km_note)
-    HTML(run_output()$results$km_note)
+    note <- run_output()$results$km_note
+    if (is.null(note) || !nzchar(note)) note <- "<em>Run analysis to populate Kaplan-Meier interpretation notes.</em>"
+    HTML(note)
   })
   pretty_arm_labels <- function(f) {
     lv <- levels(f)
@@ -1966,15 +3026,39 @@ server <- function(input, output, session) {
   }
   
   output$survival_plotly_output <- renderPlotly({
-    req(run_output()$results$analysis_data_for_plot, input$alpha)
+    m <- mapping_resolved()
+    plot_time_var <- m$time_var
+    plot_status_var <- m$status_var
+    plot_arm_var <- m$arm_var
+    plot_strata_var <- m$strata_var
     plot_data <- run_output()$results$analysis_data_for_plot
+    if (is.null(plot_data) || !nrow(plot_data)) {
+      req(rv$data_df)
+      tmp <- rv$data_df
+      validate(
+        need(!is.null(plot_time_var) && plot_time_var %in% names(tmp), "Map a valid time column."),
+        need(!is.null(plot_status_var) && plot_status_var %in% names(tmp), "Map a valid status column."),
+        need(!is.null(plot_arm_var) && plot_arm_var %in% names(tmp), "Map a valid arm column.")
+      )
+      tmp$time <- coerce_time_positive(tmp[[plot_time_var]], plot_time_var)
+      tmp$status <- coerce_status_binary(tmp[[plot_status_var]], plot_status_var)
+      tmp$arm <- factor(coerce_arm_binary(tmp[[plot_arm_var]], plot_arm_var), levels = c(0, 1))
+      needs_strata_plot <- input$model_selection %in% c("Additive Stratified Model", "Multiplicative Stratified Model")
+      if (isTRUE(needs_strata_plot) && !is.null(plot_strata_var) && nzchar(plot_strata_var) && plot_strata_var %in% names(tmp)) {
+        tmp$stratum <- as.factor(tmp[[plot_strata_var]])
+      }
+      plot_data <- tmp
+    }
+    req(input$alpha)
     pal <- theme_palette()
     
-    if ("stratum" %in% names(plot_data)) {
+    use_strata_panels <- isTRUE(input$model_selection %in% c("Additive Stratified Model", "Multiplicative Stratified Model")) &&
+      ("stratum" %in% names(plot_data))
+    if (use_strata_panels) {
       str_levels <- levels(as.factor(plot_data$stratum))
       plots <- lapply(seq_along(str_levels), function(i) {
         st <- str_levels[i]
-        d  <- subset(plot_data, stratum == st)
+        d <- subset(plot_data, stratum == st)
         d$arm <- factor(d$arm)
         fit <- survfit(Surv(time, status) ~ arm, data = d)
         km_plot_plotly(
@@ -1982,37 +3066,33 @@ server <- function(input, output, session) {
           conf.int = TRUE, conf.int.alpha = 0.3,
           conf.level = 1 - input$alpha,
           palette = pal[1:2],
-          legend.title = input$arm_var,
-          legend.labs  = pretty_arm_labels(d$arm),
-          xlab = paste("Time in the units of", input$time_var),
+          legend.title = plot_arm_var,
+          legend.labs = pretty_arm_labels(d$arm),
+          xlab = paste("Time in the units of", plot_time_var),
           ylab = "Survival probability",
           title = NULL,
           showlegend = (i == 1)
         )
       })
-      
       ncols <- 2
       nrows <- ceiling(length(plots) / ncols)
-      sp <- do.call(plotly::subplot, c(plots, nrows = nrows,
-                                       shareX = TRUE, shareY = TRUE,
-                                       titleX = TRUE, titleY = TRUE,
-                                       margin = 0.04))
-      
-      # add per-panel titles
-      sp <- add_subplot_titles(sp, paste(input$strata_var, "=", str_levels))
-      
-      # add an overall title
-      sp <- plotly::layout(
+      sp <- do.call(plotly::subplot, c(
+        plots,
+        nrows = nrows,
+        shareX = TRUE, shareY = TRUE,
+        titleX = TRUE, titleY = TRUE,
+        margin = 0.04
+      ))
+      sp <- add_subplot_titles(sp, paste(plot_strata_var, "=", str_levels))
+      plotly::layout(
         sp,
         title = list(
-          text = sprintf("Kaplan-Meier - %s by %s", input$arm_var, input$strata_var),
+          text = sprintf("Kaplan-Meier - %s by %s", plot_arm_var, plot_strata_var),
           x = 0.02, xanchor = "left"
         ),
         paper_bgcolor = "rgba(0,0,0,0)",
-        plot_bgcolor  = "rgba(0,0,0,0)"
+        plot_bgcolor = "rgba(0,0,0,0)"
       )
-      sp
-      
     } else {
       plot_data$arm <- factor(plot_data$arm)
       fit <- survfit(Surv(time, status) ~ arm, data = plot_data)
@@ -2021,11 +3101,11 @@ server <- function(input, output, session) {
         conf.int = TRUE, conf.int.alpha = 0.3,
         conf.level = 1 - input$alpha,
         palette = pal[1:2],
-        legend.title = input$arm_var,
+        legend.title = plot_arm_var,
         legend.labs  = pretty_arm_labels(plot_data$arm),
-        xlab = paste("Time in the units of", input$time_var),
+        xlab = paste("Time in the units of", plot_time_var),
         ylab = "Survival probability",
-        title = sprintf("Kaplan-Meier - %s", input$arm_var),
+        title = sprintf("Kaplan-Meier - %s", plot_arm_var),
         showlegend = TRUE
       )
     }
@@ -2040,26 +3120,35 @@ server <- function(input, output, session) {
     if (isTRUE(rv$live_power_active)) {
       return(build_live_power_plot())
     }
-    req(run_output()$results$results_plot)
-    to_plotly_clear(run_output()$results$results_plot)
+    p <- run_output()$results$results_plot
+    validate(need(!is.null(p), "Run analysis to display the power/sample-size plot."))
+    as_plotly_clear(p)
   })
   
   # Summary (tables only)
   output$results_table_ui <- renderUI({
-    req(run_output()$results$results_data)
-    run_output()$results$results_data %>%
+    rd <- run_output()$results$results_data
+    if (is.null(rd) || !nrow(rd)) {
+      return(div(class = "alert alert-danger", "Power/sample-size results are unavailable. Run analysis to generate this table."))
+    }
+    rd %>%
       kable_html_safe(caption = "Power and sample size results")
   })
   output$summary_table_ui <- renderUI({
-    req(run_output()$results$results_summary)
-    run_output()$results$results_summary %>%
+    rs <- run_output()$results$results_summary
+    if (is.null(rs) || !nrow(rs)) {
+      return(div(class = "alert alert-danger", "Analysis summary is unavailable. Run analysis to generate this table."))
+    }
+    rs %>%
       kable_html_safe(caption = "Summary measures derived from the data")
   })
   output$data_summary_ui <- renderUI({
-    req(rv$data_df)
-    arm_var <- isolate(input$arm_var %||% NULL)
+    if (is.null(rv$data_df) || !nrow(rv$data_df)) {
+      return(div(class = "alert alert-warning", "Data summary is unavailable because no dataset is loaded."))
+    }
+    arm_var <- mapping_resolved()$arm_var
     sm <- covariate_summary(rv$data_df, arm_var = arm_var)
-    if (!length(sm)) return(HTML("<em>No covariate tables are available.</em>"))
+    if (!length(sm)) return(div(class = "alert alert-warning", "No covariate tables are available for the current dataset."))
     ui <- tagList()
     if (!is.null(sm$continuous) && nrow(sm$continuous)) {
       ui <- tagAppendChildren(ui,
@@ -2076,8 +3165,55 @@ server <- function(input, output, session) {
     ui
   })
   
+  output$key_results_ui <- renderUI({
+    rd <- run_output()$results$results_data
+    if (is.null(rd) || !nrow(rd)) {
+      return(div(class = "alert alert-danger", "Key results are unavailable. Run analysis to compute key outputs."))
+    }
+    if (identical(input$analysis_type, "Power")) {
+      target_n <- suppressWarnings(as.numeric(strsplit(input$sample_sizes %||% "100,150,200", ",")[[1]][1]))
+      nn <- rd[[grep("^N_", names(rd), value = TRUE)[1] %||% "N_per_arm"]]
+      pow <- rd$Power
+      idx <- if (is.finite(target_n)) which.min(abs(nn - target_n)) else nrow(rd)
+      txt <- sprintf("Nearest power estimate at N=%.3f is %.3f.", as.numeric(nn[idx]), as.numeric(pow[idx]))
+      if (identical(input$calc_method, "Repeated") && "SE" %in% names(rd) && is.finite(rd$SE[idx])) {
+        txt <- paste0(txt, sprintf(" Monte Carlo SE: %.3f.", as.numeric(rd$SE[idx])))
+      }
+      div(class = "alert alert-info", txt)
+    } else {
+      req_row <- rd[1, , drop = FALSE]
+      req_col <- grep("Required_N", names(req_row), value = TRUE)[1]
+      if (!length(req_col)) return(div(class = "alert alert-warning", "Required sample size is not available in the current output table."))
+      target_power <- suppressWarnings(as.numeric(input$target_power %||% 0.8))
+      if (!is.finite(target_power)) target_power <- 0.8
+      div(class = "alert alert-info", sprintf(
+        "Required sample size is %.3f at target power %.3f.",
+        as.numeric(req_row[[req_col]]),
+        target_power
+      ))
+    }
+  })
+  
+  output$run_log_summary_ui <- renderUI({
+    warns <- unique(rv$last_warning_lines %||% character(0))
+    errs <- unique(rv$last_error_lines %||% character(0))
+    if (!length(warns) && !length(errs)) return(div(class = "alert alert-success", "No warnings or errors in latest run log."))
+    tagList(
+      if (length(errs)) div(class = "alert alert-danger", strong("Errors:"), tags$ul(lapply(utils::head(errs, 5), tags$li))),
+      if (length(warns)) div(class = "alert alert-warning", strong("Warnings:"), tags$ul(lapply(utils::head(warns, 5), tags$li)))
+    )
+  })
+  
   # Console log (text only)
-  output$console_log_output <- renderText({ paste(console_log(), collapse = "\n") })
+  output$console_log_output <- renderText({
+    clean_part <- rv$cleaning_logs %||% character(0)
+    run_part <- console_log() %||% character(0)
+    parts <- c(
+      if (length(clean_part)) c("=== Data Cleaning Log ===", clean_part, ""),
+      if (nzchar(run_part)) c("=== Analysis Log ===", run_part)
+    )
+    if (!length(parts)) "No log entries yet." else paste(parts, collapse = "\n")
+  })
   
   # ------------------ Downloads (PDF & HTML) ------------------
   data_provenance <- reactive({
@@ -2098,58 +3234,186 @@ server <- function(input, output, session) {
     filename = function() paste0("RMSTpowerBoost_report_", Sys.Date(), ".pdf"),
     contentType = "application/pdf",
     content = function(file) {
-      req(run_output()$results)
       id <- showNotification("Generating PDF report...", type="message", duration = NULL, closeButton = FALSE)
       on.exit(removeNotification(id), add = TRUE)
       tpl <- make_inline_template()
-      rmarkdown::render(
-        input         = tpl,
-        output_format = rmarkdown::pdf_document(),
-        output_file   = basename(file),
-        output_dir    = dirname(file),
-        params        = list(
-          inputs          = report_inputs_builder(input),
-          results         = run_output()$results,
-          log             = paste(console_log(), run_output()$log, sep = "\n"),
-          data_provenance = data_provenance(),
-          data            = get_pilot_data()
-        ),
-        envir         = new.env(parent = globalenv()),
-        clean         = TRUE
-      )
+      out_file <- tempfile(fileext = ".pdf")
+      on.exit(unlink(out_file), add = TRUE)
+      write_pdf_fallback <- function(target_file, reason_message) {
+        grDevices::pdf(target_file, width = 8.5, height = 11)
+        plot.new()
+        text(0.5, 0.70, "RMSTpowerBoost PDF export fallback", cex = 1.15)
+        text(0.5, 0.58, paste("Reason:", reason_message %||% "Unknown reason"), cex = 0.92)
+        text(0.5, 0.48, "Install TinyTeX/LaTeX for full PDF report rendering.", cex = 0.9)
+        text(0.5, 0.40, "You can also use HTML export for full report content.", cex = 0.9)
+        grDevices::dev.off()
+      }
+      if (is.null(run_output()$results)) {
+        write_pdf_fallback(file, "No analysis results available for PDF export.")
+        showNotification("Run analysis first, then export PDF.", type = "warning", duration = 8)
+        return(invisible(NULL))
+      }
+      sim_seed_report <- rv$effective_sim_seed %||% if (is.na(input$sim_seed)) sample.int(.Machine$integer.max, 1L) else as.integer(input$sim_seed)
+      reps_seed_report <- rv$effective_reps_seed %||% if (is.na(input$seed_reps)) sample.int(.Machine$integer.max, 1L) else as.integer(input$seed_reps)
+      has_latex <- nzchar(Sys.which("pdflatex")) ||
+        (requireNamespace("tinytex", quietly = TRUE) && isTRUE(tryCatch(tinytex::is_tinytex(), error = function(e) FALSE)))
+      if (!isTRUE(has_latex)) {
+        write_pdf_fallback(file, "LaTeX engine was not found on this system.")
+        showNotification("PDF requires TinyTeX/LaTeX. Exported diagnostic PDF fallback instead.", type = "error", duration = 10)
+        return(invisible(NULL))
+      }
+      tryCatch({
+        rendered <- rmarkdown::render(
+          input         = tpl,
+          output_format = rmarkdown::pdf_document(),
+          output_file   = basename(out_file),
+          output_dir    = dirname(out_file),
+          params        = list(
+            inputs          = report_inputs_builder(input),
+            results         = run_output()$results,
+            log             = paste(console_log(), run_output()$log, sep = "\n"),
+            data_provenance = data_provenance(),
+            data            = get_pilot_data(),
+            data_cleaning   = rv$cleaning_report %||% NULL,
+            reproducibility = list(
+              timestamp = Sys.time(),
+              sim_seed = sim_seed_report,
+              seed_reps = reps_seed_report,
+              r_version = R.version.string,
+              package_versions = {
+                pk <- c("shiny","bslib","plotly","survival","dplyr","tidyr","purrr","stringr","rmarkdown")
+                ip <- as.data.frame(utils::installed.packages(), stringsAsFactors = FALSE)
+                ip <- ip[ip$Package %in% pk, c("Package","Version"), drop = FALSE]
+                ip[order(ip$Package), , drop = FALSE]
+              },
+              session_info = paste(capture.output(utils::sessionInfo()), collapse = "\n")
+            )
+          ),
+          envir         = new.env(parent = globalenv()),
+          clean         = TRUE
+        )
+        produced <- if (is.character(rendered) && length(rendered) == 1) rendered else out_file
+        if (!file.exists(produced)) produced <- out_file
+        ok <- file.copy(produced, file, overwrite = TRUE)
+        if (!isTRUE(ok)) {
+          write_pdf_fallback(file, "Failed to prepare PDF download file.")
+        }
+      }, error = function(e) {
+        write_pdf_fallback(file, paste("PDF generation failed:", conditionMessage(e)))
+        showNotification(paste("PDF generation failed; exported diagnostic PDF fallback instead:", conditionMessage(e)), type = "error", duration = 10)
+      })
     }
   )
   output$download_report_html <- downloadHandler(
     filename = function() paste0("RMSTpowerBoost_report_", Sys.Date(), ".html"),
     contentType = "text/html",
     content = function(file) {
-      req(run_output()$results)
       id <- showNotification("Generating HTML report...", type="message", duration = NULL, closeButton = FALSE)
       on.exit(removeNotification(id), add = TRUE)
       tpl <- make_inline_template()
-      rmarkdown::render(
-        input         = tpl,
-        output_format = rmarkdown::html_document(theme = "flatly", toc = TRUE, toc_depth = 3),
-        output_file   = basename(file),
-        output_dir    = dirname(file),
-        params        = list(
-          inputs          = report_inputs_builder(input),
-          results         = run_output()$results,
-          log             = paste(console_log(), run_output()$log, sep = "\n"),
-          data_provenance = data_provenance(),
-          data            = get_pilot_data()
-        ),
-        envir         = new.env(parent = globalenv()),
-        clean         = TRUE
-      )
+      out_file <- tempfile(fileext = ".html")
+      on.exit(unlink(out_file), add = TRUE)
+      if (is.null(run_output()$results)) {
+        writeLines("<html><body><h2>No analysis results available for HTML export.</h2></body></html>", con = file, useBytes = TRUE)
+        showNotification("Run analysis first, then export HTML.", type = "warning", duration = 8)
+        return(invisible(NULL))
+      }
+      sim_seed_report <- rv$effective_sim_seed %||% if (is.na(input$sim_seed)) sample.int(.Machine$integer.max, 1L) else as.integer(input$sim_seed)
+      reps_seed_report <- rv$effective_reps_seed %||% if (is.na(input$seed_reps)) sample.int(.Machine$integer.max, 1L) else as.integer(input$seed_reps)
+      tryCatch({
+        rendered <- rmarkdown::render(
+          input         = tpl,
+          output_format = rmarkdown::html_document(theme = "flatly", toc = TRUE, toc_depth = 3),
+          output_file   = basename(out_file),
+          output_dir    = dirname(out_file),
+          params        = list(
+            inputs          = report_inputs_builder(input),
+            results         = run_output()$results,
+            log             = paste(console_log(), run_output()$log, sep = "\n"),
+            data_provenance = data_provenance(),
+            data            = get_pilot_data(),
+            data_cleaning   = rv$cleaning_report %||% NULL,
+            reproducibility = list(
+              timestamp = Sys.time(),
+              sim_seed = sim_seed_report,
+              seed_reps = reps_seed_report,
+              r_version = R.version.string,
+              package_versions = {
+                pk <- c("shiny","bslib","plotly","survival","dplyr","tidyr","purrr","stringr","rmarkdown")
+                ip <- as.data.frame(utils::installed.packages(), stringsAsFactors = FALSE)
+                ip <- ip[ip$Package %in% pk, c("Package","Version"), drop = FALSE]
+                ip[order(ip$Package), , drop = FALSE]
+              },
+              session_info = paste(capture.output(utils::sessionInfo()), collapse = "\n")
+            )
+          ),
+          envir         = new.env(parent = globalenv()),
+          clean         = TRUE
+        )
+        produced <- if (is.character(rendered) && length(rendered) == 1) rendered else out_file
+        if (!file.exists(produced)) produced <- out_file
+        ok <- file.copy(produced, file, overwrite = TRUE)
+        if (!isTRUE(ok)) {
+          writeLines("<html><body><h2>Failed to prepare HTML download file.</h2></body></html>", con = file, useBytes = TRUE)
+        }
+      }, error = function(e) {
+        html_fallback <- paste0(
+          "<html><body><h2>RMSTpowerBoost HTML generation failed</h2><p>",
+          htmltools::htmlEscape(conditionMessage(e)),
+          "</p></body></html>"
+        )
+        writeLines(html_fallback, con = out_file, useBytes = TRUE)
+        ok_fallback <- file.copy(out_file, file, overwrite = TRUE)
+        if (!isTRUE(ok_fallback)) {
+          writeLines(html_fallback, con = file, useBytes = TRUE)
+        }
+        showNotification(paste("HTML generation failed; exported diagnostic HTML instead:", conditionMessage(e)), type = "error", duration = 10)
+      })
     }
   )
   
   # Reveal Step2+3 when data is present; hide simulate after success
+  analysis_ready <- reactive({
+    has_data <- !is.null(rv$data_df) && nrow(rv$data_df) > 0
+    if (!has_data) return(FALSE)
+    if (identical(rv$data_source, "uploaded") && isTRUE(rv$cleaning_required)) return(FALSE)
+    TRUE
+  })
+  
   observe({
-    shinyjs::toggle(id = "model_analysis_panel", condition = !is.null(rv$data_df))
+    needs_cleaning <- identical(rv$data_source, "uploaded") && isTRUE(rv$cleaning_required)
+    shinyjs::toggle(id = "model_analysis_panel", condition = isTRUE(analysis_ready()))
+    shinyjs::toggle(id = "data_cleaning_panel", condition = needs_cleaning)
+    shinyjs::toggle(id = "step1_panel", condition = !isTRUE(analysis_ready()))
     shinyjs::toggle(id = "simulate_panel", condition = is.null(rv$data_df) && rv$data_mode == "Generate")
     shinyjs::toggle(id = "upload_panel",   condition = is.null(rv$data_df) && rv$data_mode == "Upload")
+  })
+  
+  # Reset workflow (always available in Step 2/3)
+  observeEvent(input$reset_workflow, {
+    rv$covariates <- list()
+    rv$cat_rows <- tibble::tibble(cat = character(), prob = numeric(), coef = numeric())
+    rv$data_df <- NULL; rv$data_source <- NULL; rv$console_buf <- character(0); rv$provenance <- NULL
+    rv$data_df_raw_upload <- NULL
+    rv$missing_summary <- NULL
+    rv$cleaning_logs <- character(0)
+    rv$cleaning_mode <- NULL
+    rv$cleaning_report <- list(
+      mode = "complete_data",
+      used_mice = FALSE,
+      message = "Complete data used.",
+      mice_parameters = NULL
+    )
+    rv$cleaning_required <- FALSE
+    rv$recommended_clean_mode <- "ignore"
+    rv$step2_confirmed <- FALSE
+    rv$auto_run_pending <- FALSE
+    rv$effective_sim_seed <- NULL
+    rv$effective_reps_seed <- NULL
+    shinyjs::hide("download_reset_row")
+    shinyjs::show("simulate_panel")
+    updateTabsetPanel(session, "main_tabs", selected = "Pipeline")
+    showNotification("Workflow reset to main page.", type = "message")
   })
   
   # Reset all (appears after analysis)
@@ -2157,9 +3421,25 @@ server <- function(input, output, session) {
     rv$covariates <- list()
     rv$cat_rows <- tibble::tibble(cat = character(), prob = numeric(), coef = numeric())
     rv$data_df <- NULL; rv$data_source <- NULL; rv$console_buf <- character(0); rv$provenance <- NULL
+    rv$data_df_raw_upload <- NULL
+    rv$missing_summary <- NULL
+    rv$cleaning_logs <- character(0)
+    rv$cleaning_mode <- NULL
+    rv$cleaning_report <- list(
+      mode = "complete_data",
+      used_mice = FALSE,
+      message = "Complete data used.",
+      mice_parameters = NULL
+    )
+    rv$cleaning_required <- FALSE
+    rv$recommended_clean_mode <- "ignore"
+    rv$step2_confirmed <- FALSE
+    rv$auto_run_pending <- FALSE
+    rv$effective_sim_seed <- NULL
+    rv$effective_reps_seed <- NULL
     shinyjs::hide("download_reset_row")
     shinyjs::show("simulate_panel")
-    updateTabsetPanel(session, "main_tabs", selected = "Instructions")
+    updateTabsetPanel(session, "main_tabs", selected = "Pipeline")
     showNotification("All inputs reset.", type="message")
   })
 }

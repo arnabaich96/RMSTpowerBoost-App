@@ -17,7 +17,8 @@ Imports:
     future,
     future.apply,
     knitr,
-    scales
+    scales,
+    mice
 Suggests:
     testthat (>= 3.0.0),
     covr,

@@ -35,6 +35,12 @@ It is designed for biostatisticians, clinical trialists, and researchers who nee
       * Summary tables of effect sizes and results
       * A downloadable analysis report
 
+### In-App Navigation
+
+* **Pipeline** tab: step-by-step workflow and troubleshooting guide.
+* **Data Preview**, **Plot Output**, **Summary**, **Run Log**: execution and result views.
+* **About** tab: license, bug-report link, coverage links, citation/contact, and external resources.
+
 -----
 
 ## The `RMSTpowerBoost` R Package
@@ -52,4 +58,40 @@ If you encounter a bug or have a suggestion for improving the application, pleas
 ## Coverge Sunburst
 
 ![Codecov Sunburst](https://codecov.io/github/arnabaich96/RMSTpowerBoost-App/graphs/sunburst.svg?token=5C7QOI1GAB)
+
+-----
+
+## Missing-Data Fixture Generation
+
+The app test suite includes deterministic missing-data fixtures for upload and cleaning pipeline tests.
+
+### Supported fixture formats
+
+* `.csv`
+* `.txt` (tab-delimited)
+* `.tsv`
+* `.rds`
+* `.RData`
+
+### Regenerate fixtures
+
+From the `RMSTpowerBoost-App` directory:
+
+```r
+Rscript sim.data/generate_missing_pipeline_fixtures.R
+```
+
+Generated files are written to:
+
+* `tests/fixtures/missing_pipeline/`
+
+The generator also writes:
+
+* `tests/fixtures/missing_pipeline/manifest.csv`
+
+### Run tests
+
+```r
+Rscript -e "testthat::test_dir('tests/testthat')"
+```
 

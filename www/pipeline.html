@@ -1,0 +1,114 @@
+<div class="rmst-home">
+  <div class="home-wrap">
+
+    <section class="hero">
+      <div class="kicker">RMSTpowerBoost</div>
+      <h1>RMST-based Power and Sample Size Planning</h1>
+      <p class="lead">
+        Upload pilot data or generate a synthetic pilot dataset, clean missingness, map variables,
+        then compute power or required sample size using analytical or repeated methods.
+      </p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="#step1">Start: Step 1</a>
+        <a class="btn btn-default" href="#outputs">See outputs</a>
+        <a class="btn btn-link" href="#trouble">Troubleshooting</a>
+      </div>
+    </section>
+
+    <div class="grid">
+
+      <section class="card half" id="step1">
+        <div class="card-head">
+          <span class="step">Step 1</span>
+          <h2>Upload or Generate Data</h2>
+        </div>
+        <ul>
+          <li><strong>Upload</strong>: import pilot data in <code>.csv</code>, <code>.txt</code>, <code>.tsv</code>, <code>.rds</code>, or <code>.RData</code>.</li>
+          <li><strong>Generate</strong>: specify covariates, model family, coefficients, censoring target, and seed.</li>
+          <li><strong>Recommendation</strong>: use ≥ 100 observations when feasible for stable diagnostics.</li>
+        </ul>
+      </section>
+
+      <section class="card half">
+        <div class="card-head">
+          <span class="step">Step 1b</span>
+          <h2>Upload-only Cleaning</h2>
+        </div>
+        <ul>
+          <li>Missingness is checked immediately after upload.</li>
+          <li>A missingness profile by column is shown in <strong>Data Preview</strong>.</li>
+          <li>If missing values exist, choose a cleaning mode: ignore rows, impute, or both.</li>
+          <li>Cleaning actions and outcomes are recorded in the <strong>Run Log</strong>.</li>
+        </ul>
+      </section>
+
+      <section class="card half">
+        <div class="card-head">
+          <span class="step">Optional</span>
+          <h2>MICE Imputation</h2>
+        </div>
+        <ul>
+          <li>Builds a method map via <code>mice::make.method</code>, then assigns a default method (e.g., <code>pmm</code>, <code>norm</code>, <code>cart</code>, <code>rf</code>).</li>
+          <li>Columns with empty method are excluded from imputation and reported in the Run Log.</li>
+          <li>Runs with your chosen <code>m</code>, <code>maxit</code>, and seed; the first completed dataset is used downstream.</li>
+          <li>Any remaining missingness is reported so you can adjust settings.</li>
+        </ul>
+      </section>
+
+      <section class="card half">
+        <div class="card-head">
+          <span class="step">Step 2</span>
+          <h2>Map Variables & Configure Method</h2>
+        </div>
+        <ul>
+          <li>Map <code>time</code>, <code>status</code>, <code>arm</code>, and optional <code>strata</code>.</li>
+          <li>Select target: power or sample size; pick RMST model and method (analytical vs repeated).</li>
+          <li>Specify <code>tau</code>, <code>alpha</code>, and either target power or sample size inputs.</li>
+        </ul>
+      </section>
+
+      <section class="card half">
+        <div class="card-head">
+          <span class="step">Step 3</span>
+          <h2>Confirm & Run</h2>
+        </div>
+        <ul>
+          <li>Use <strong>Confirm Step 2</strong> to lock mapping and setup.</li>
+          <li>Run analysis once the readiness checklist is satisfied.</li>
+          <li>Progress and diagnostics appear in <strong>Run Log</strong>.</li>
+        </ul>
+      </section>
+
+      <section class="card half" id="outputs">
+        <div class="card-head">
+          <span class="step">Outputs</span>
+          <h2>Results & Downloads</h2>
+        </div>
+        <ul>
+          <li><strong>Plot Output</strong>: covariate distributions, Kaplan–Meier plots, power curves.</li>
+          <li><strong>Summary</strong>: key results plus analysis/data summary tables.</li>
+          <li><strong>Run Log</strong>: cleaning and execution messages.</li>
+          <li><strong>Reports</strong>: download HTML and PDF after a completed run.</li>
+        </ul>
+
+        <div class="callout">
+          <b>PDF note:</b> PDF generation requires LaTeX (MiKTeX or TinyTeX). If it fails, export HTML and use the log to resolve missing LaTeX packages.
+        </div>
+      </section>
+
+      <section class="card" id="trouble">
+        <div class="card-head">
+          <span class="step">Help</span>
+          <h2>Quick Troubleshooting</h2>
+        </div>
+        <ul>
+          <li><strong>Checklist not ready</strong>: verify mapped columns, binary status, and a two-level treatment arm.</li>
+          <li><strong>Missing data blocks analysis</strong>: complete Step 1b cleaning first.</li>
+          <li><strong>No plots/summary</strong>: rerun and inspect the Run Log for model/fit errors.</li>
+          <li><strong>PDF filename issues</strong>: confirm report handlers return a path ending in <code>.pdf</code>.</li>
+        </ul>
+      </section>
+
+    </div>
+  </div>
+</div>

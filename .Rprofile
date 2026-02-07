@@ -1,5 +1,8 @@
 source("renv/activate.R")
 renv::autoload()
+# This app sources R/*.R explicitly inside app.R; disable Shiny's automatic
+# R/ autoload to avoid package-dir warning and double sourcing.
+options(shiny.autoload.r = FALSE)
 if (dir.exists(".git")) {
   try({
     message("Running git pull...")
