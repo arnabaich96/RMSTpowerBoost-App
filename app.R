@@ -1,4 +1,4 @@
-# app.R — RMSTpowerBoost (single file, no external Rmd required)
+# app.R - RMSTpowerBoost (single file, no external Rmd required)
 
 # ------------------ Packages ------------------
 packages <- c(
@@ -230,14 +230,27 @@ km_plot_plotly <- function(fit, conf.int = TRUE, conf.int.alpha = 0.3, conf.leve
     col <- pal[i]
     
     if (conf.int) {
+      # Draw CI as step-wise band between lower and upper curves.
+      # Using tonexty avoids polygon-closure triangles at the tail.
       p <- plotly::add_trace(
         p,
-        x = c(d$time, rev(d$time)),
-        y = c(d$upper, rev(d$lower)),
+        x = d$time,
+        y = d$lower,
         type = "scatter",
         mode = "lines",
-        line = list(color = "rgba(0,0,0,0)"),
-        fill = "toself",
+        line = list(color = "rgba(0,0,0,0)", width = 0, shape = "hv"),
+        hoverinfo = "skip",
+        showlegend = FALSE,
+        legendgroup = as.character(g)
+      )
+      p <- plotly::add_trace(
+        p,
+        x = d$time,
+        y = d$upper,
+        type = "scatter",
+        mode = "lines",
+        line = list(color = "rgba(0,0,0,0)", width = 0, shape = "hv"),
+        fill = "tonexty",
         fillcolor = hex_to_rgba(col, conf.int.alpha),
         hoverinfo = "skip",
         showlegend = FALSE,
@@ -574,9 +587,9 @@ make_inline_template <- function() {
     "```",
     "```{r logrank-summary, echo=FALSE, eval = !is.null(params$results$logrank_summary)}",
     "cap <- if (!is.null(params$inputs$strata_var) && nzchar(params$inputs$strata_var)) {",
-    "  paste0('Stratified log–rank test results (strata: ', params$inputs$strata_var, ')')",
+    "  paste0('Stratified log-rank test results (strata: ', params$inputs$strata_var, ')')",
     "} else {",
-    "  'Log–rank test results'",
+    "  'Log-rank test results'",
     "}",
     "kbl(params$results$logrank_summary, booktabs = TRUE,",
     "    caption = cap, row.names = FALSE) %>%",
@@ -614,7 +627,7 @@ report_inputs_builder <- function(input) {
     status_var      = input$status_var,
     arm_var         = input$arm_var,
     strata_var      = input$strata_var %||% "",
-    dc_linear_terms = input$dc_linear_terms %||% character(0),  # ← added
+    dc_linear_terms = input$dc_linear_terms %||% character(0),  # added
     calc_method     = input$calc_method %||% "Analytical",
     L               = input$L,
     alpha           = input$alpha,
@@ -763,7 +776,7 @@ ui <- fluidPage(
           h5("1a. Covariate Builder"),
           # Row 1: name/type
           fluidRow(
-            column(6, textInput("cov_name", "Variable name", value = "", placeholder = "x1, x2 … auto if empty")),
+            column(6, textInput("cov_name", "Variable name", value = "", placeholder = "x1, x2 ... auto if empty")),
             column(6, selectInput("cov_type", "Type", choices = c("continuous","categorical")))
           ),
           # Continuous vs Categorical UI
@@ -791,11 +804,11 @@ ui <- fluidPage(
           fluidRow(
             column(4, numericInput("sim_n", "Sample size", value = 300, min = 10)),
             column(4, textInput("sim_allocation", "Allocation (a:b)", value = "1:1")),
-            column(4, numericInput("sim_treat_eff", "Treatment β (arm)", value = -0.2, step = 0.05))
+            column(4, numericInput("sim_treat_eff", "Treatment beta (arm)", value = -0.2, step = 0.05))
           ),
           fluidRow(
-            column(6, checkboxInput("intercept_in_mm", "Include intercept in model.matrix (β0 inside β)", value = TRUE)),
-            column(6, numericInput("user_intercept", "β0 (used if no intercept in model.matrix)", value = 0))
+            column(6, checkboxInput("intercept_in_mm", "Include intercept in model.matrix (beta0 inside beta)", value = TRUE)),
+            column(6, numericInput("user_intercept", "beta0 (used if no intercept in model.matrix)", value = 0))
           ),
           fluidRow(
             column(6, selectInput("sim_model", "Event-time model",
@@ -824,7 +837,7 @@ ui <- fluidPage(
                                               "Multiplicative Stratified Model","Semiparametric (GAM) Model",
                                               "Dependent Censoring Model"),
                                   selected = "Linear IPCW Model")),
-            column(4, numericInput("L", "RMST L (τ)", value = 365, min = 1))
+            column(4, numericInput("L", "RMST L (tau)", value = 365, min = 1))
           ),
           # NEW: Analytical vs Repeated
           radioButtons("calc_method", "Calculation Method", choices = c("Analytical", "Repeated"), selected = "Analytical", inline = TRUE),
@@ -836,7 +849,7 @@ ui <- fluidPage(
               column(6, numericInput("seed_reps", "Seed (optional)", value = NA))
             )
           ),
-          sliderInput("alpha", "Significance Level (α)", min = 0.01, max = 0.1, value = 0.05, step = 0.01),
+          sliderInput("alpha", "Significance Level (alpha)", min = 0.01, max = 0.1, value = 0.05, step = 0.01),
           tags$hr(),
           fluidRow(
             column(4, actionButton("run_analysis", "Run Analysis", icon = icon("play"), class = "btn-primary btn-lg")),
@@ -938,7 +951,8 @@ ui <- fluidPage(
 # ------------------ Repeated Power (no 'bootstrap' wording) ------------------
 repeated_power_from_pilot <- function(pilot_df, time_var, status_var, arm_var,
                                       n_per_arm_vec, alpha = 0.05, R = 500,
-                                      strata_var = NULL, seed = NULL) {
+                                      strata_var = NULL, seed = NULL,
+                                      point_cb = NULL) {
   stopifnot(is.data.frame(pilot_df))
   needed <- c(time_var, status_var, arm_var, strata_var)
   needed <- needed[!is.null(needed)]
@@ -989,7 +1003,11 @@ repeated_power_from_pilot <- function(pilot_df, time_var, status_var, arm_var,
     }
     m <- mean(rej, na.rm = TRUE); k <- sum(is.finite(rej))
     se <- if (k > 0) sqrt(m*(1-m)/k) else NA_real_
-    data.frame(N_per_arm = n_arm, Power = m, SE = se, Reps = k)
+    row <- data.frame(N_per_arm = n_arm, Power = m, SE = se, Reps = k)
+    if (is.function(point_cb)) {
+      try(point_cb(n_arm, m), silent = TRUE)
+    }
+    row
   })
   do.call(rbind, out)
 }
@@ -1016,8 +1034,92 @@ server <- function(input, output, session) {
     data_mode = "Upload",
     data_df = NULL,
     data_source = NULL,
-    console_buf = character(0)
+    console_buf = character(0),
+    live_power_active = FALSE,
+    live_power_points = data.frame(N = numeric(), Power = numeric(), stringsAsFactors = FALSE),
+    live_power_meta = list(xlab = "Sample size per arm", title = "Power vs. Sample Size", target_power = NULL)
   )
+
+  init_live_power_plot <- function(xlab = "Sample size per arm",
+                                   title = "Power vs. Sample Size",
+                                   target_power = NULL) {
+    rv$live_power_points <- data.frame(N = numeric(), Power = numeric(), stringsAsFactors = FALSE)
+    rv$live_power_meta <- list(xlab = xlab, title = title, target_power = target_power)
+    rv$live_power_active <- TRUE
+  }
+
+  build_live_power_plot <- function() {
+    pal <- theme_palette()
+    pts <- rv$live_power_points
+    lbl <- if (nrow(pts)) sprintf("N=%s<br>P=%.3f", pts$N, pts$Power) else character(0)
+    p <- plotly::plot_ly(
+      x = pts$N,
+      y = pts$Power,
+      type = "scatter",
+      mode = "lines+markers+text",
+      text = lbl,
+      textposition = "top center",
+      line = list(color = pal[1], width = 2),
+      marker = list(color = pal[2], size = 9),
+      hovertemplate = "N=%{x}<br>Power=%{y:.3f}<extra></extra>"
+    )
+    p <- plotly::layout(
+      p,
+      title = list(text = rv$live_power_meta$title %||% "Power vs. Sample Size", x = 0.02, xanchor = "left"),
+      xaxis = list(title = rv$live_power_meta$xlab %||% "Sample size per arm"),
+      yaxis = list(title = "Power", range = c(0, 1.05)),
+      paper_bgcolor = "rgba(0,0,0,0)",
+      plot_bgcolor = "rgba(0,0,0,0)",
+      margin = list(t = 60, r = 20, b = 70, l = 60)
+    )
+    if (is.finite(rv$live_power_meta$target_power %||% NA_real_)) {
+      tp <- as.numeric(rv$live_power_meta$target_power)
+      p <- plotly::layout(
+        p,
+        shapes = list(list(
+          type = "line",
+          xref = "paper",
+          x0 = 0,
+          x1 = 1,
+          y0 = tp,
+          y1 = tp,
+          line = list(color = "red", dash = "dash")
+        )),
+        annotations = list(list(
+          xref = "paper",
+          x = 0.99,
+          y = tp,
+          text = sprintf("Target %.2f", tp),
+          showarrow = FALSE,
+          xanchor = "right",
+          yanchor = "bottom",
+          font = list(size = 11, color = "red")
+        ))
+      )
+    }
+    p
+  }
+
+  push_live_power_point <- function(n_value, power_value) {
+    if (!is.finite(n_value) || !is.finite(power_value)) return(invisible(NULL))
+    rv$live_power_points <- rbind(
+      rv$live_power_points,
+      data.frame(N = as.numeric(n_value), Power = as.numeric(power_value), stringsAsFactors = FALSE)
+    )
+    txt <- sprintf("N=%s<br>P=%.3f", n_value, power_value)
+    try({
+      plotly::plotlyProxy("results_plot", session) %>%
+        plotly::plotlyProxyInvoke(
+          "extendTraces",
+          list(
+            x = list(list(as.numeric(n_value))),
+            y = list(list(as.numeric(power_value))),
+            text = list(list(txt))
+          ),
+          list(0)
+        )
+    }, silent = TRUE)
+  }
   
   # Toggle Upload vs Generate
   observeEvent(input$data_mode, {
@@ -1033,7 +1135,7 @@ server <- function(input, output, session) {
       tagList(
         fluidRow(
           column(6, selectInput("cont_dist", "Distribution", choices = c("normal","lognormal","gamma","weibull","uniform","t","beta"))),
-          column(6, numericInput("cont_beta", "Coefficient β", value = 0))
+          column(6, numericInput("cont_beta", "Coefficient beta", value = 0))
         ),
         uiOutput("cont_param_ui")
       )
@@ -1043,7 +1145,7 @@ server <- function(input, output, session) {
         fluidRow(
           column(6, textInput("cat_add_name", "Add category name", placeholder = "auto if blank")),
           column(3, numericInput("cat_add_prob", "Probability", value = NA, min = 0, max = 1, step = 0.01)),
-          column(3, numericInput("cat_add_coef", "Coefficient β", value = 0))
+          column(3, numericInput("cat_add_coef", "Coefficient beta", value = 0))
         ),
         fluidRow(
           column(4, actionButton("add_cat_row", "Add category", icon=icon("plus"))),
@@ -1052,7 +1154,7 @@ server <- function(input, output, session) {
         ),
         br(),
         DTOutput("cat_table"),
-        helpText("Tip: If you include intercept in model.matrix, only K−1 coefficients are used (last level’s β is ignored).")
+        helpText("Tip: If you include intercept in model.matrix, only K-1 coefficients are used (last level's beta is ignored).")
       )
     }
   })
@@ -1109,7 +1211,7 @@ server <- function(input, output, session) {
   output$cat_table <- renderDT({
     if (!nrow(rv$cat_rows)) {
       DT::datatable(
-        data.frame(Message="No categories yet — add rows above."),
+        data.frame(Message="No categories yet - add rows above."),
         options = list(dom='t'),
         rownames = FALSE,
         selection = "none"
@@ -1141,14 +1243,14 @@ server <- function(input, output, session) {
     updateNumericInput(session, "tf_center", value = 0)
     updateNumericInput(session, "tf_scale", value = 1)
     rv$cat_rows <- tibble::tibble(cat = character(), prob = numeric(), coef = numeric())
-    reset_cat_entry_ui(session)   # ← add this
+    reset_cat_entry_ui(session)   # add this
   })
   
   observeEvent(input$reset_cat_rows, {
     rv$cat_rows <- tibble::tibble(cat = character(), prob = numeric(), coef = numeric())
-    reset_cat_entry_ui(session)   # ← nice touch
+    reset_cat_entry_ui(session)   # nice touch
   })
-  # Helper: auto covariate name x1, x2…
+  # Helper: auto covariate name x1, x2...
   next_cov_name <- reactive({
     nm <- input$cov_name
     if (nzchar(nm)) return(nm)
@@ -1232,7 +1334,7 @@ server <- function(input, output, session) {
       
       # Final check
       if (any(prob < 0) || abs(sum(prob) - 1) > 1e-6) {
-        showNotification("Category probabilities must be ≥ 0 and sum to 1 (after auto-completion).", type="error"); return()
+        showNotification("Category probabilities must be >= 0 and sum to 1 (after auto-completion).", type="error"); return()
       }
       
       # Bernoulli vs multiclass
@@ -1386,7 +1488,7 @@ server <- function(input, output, session) {
       Event_time = list(model = input$sim_model, baseline = baseline),
       Treatment  = list(assignment = "randomization", allocation = input$sim_allocation),
       Effects    = list(treatment = input$sim_treat_eff,
-                        intercept_report = if (include_intercept) "(in model.matrix β)" else input$user_intercept,
+                        intercept_report = if (include_intercept) "(in model.matrix beta)" else input$user_intercept,
                         intercept_in_mm = include_intercept,
                         formula = deparse(form),
                         mm_cols = mm_cols),
@@ -1518,6 +1620,16 @@ server <- function(input, output, session) {
   run_output <- reactiveVal(list(results = NULL, log = "Analysis has not been run yet."))
   console_log <- reactiveVal("")
   
+  # Keep power plot output alive even when its tab is hidden.
+  # Register after outputs are initialized to avoid startup ordering issues.
+  session$onFlushed(function() {
+    outputOptions(output, "results_plot", suspendWhenHidden = FALSE)
+  }, once = TRUE)
+  
+  observeEvent(input$run_analysis, {
+    updateTabsetPanel(session, "main_tabs", selected = "Plots")
+  }, ignoreInit = TRUE)
+  
   run_analysis_results <- eventReactive(input$run_analysis, {
     validate(need(rv$data_df, "Please upload or simulate data first."))
     validate(need(input$time_var, "Please map Time-to-Event column."))
@@ -1526,6 +1638,7 @@ server <- function(input, output, session) {
     if (input$model_selection %in% c("Additive Stratified Model", "Multiplicative Stratified Model")) {
       validate(need(!is.null(input$strata_var) && nzchar(input$strata_var), "Please map a stratification variable for stratified models."))
     }
+    on.exit({ rv$live_power_active <- FALSE }, add = TRUE)
     
     analysis_results <- NULL
     log_text <- capture.output({
@@ -1574,27 +1687,55 @@ server <- function(input, output, session) {
         })
         
         # ----- Power / Sample size -----
-        setProgress(0.8, detail = if (input$calc_method == "Analytical") "Computing (analytical) …" else "Computing (repeated) …")
+        setProgress(0.8, detail = if (input$calc_method == "Analytical") "Computing (analytical) ..." else "Computing (repeated) ...")
+        if (input$analysis_type == "Power") {
+          n_vec <- as.numeric(trimws(strsplit(input$sample_sizes, ",")[[1]]))
+          n_vec <- n_vec[is.finite(n_vec) & n_vec > 0]
+          if (!length(n_vec)) n_vec <- c(100, 150, 200)
+          iter_total <- length(n_vec)
+        } else {
+          grid <- seq(30, 1000, by = 10)
+          iter_total <- length(grid)
+        }
+        iter_count <- 0L
+        iter_step <- if (iter_total > 0) 0.18 / iter_total else 0
+        x_label_live <- if (input$model_selection %in% c("Additive Stratified Model", "Multiplicative Stratified Model")) {
+          "Sample size per stratum"
+        } else {
+          "Sample size per arm"
+        }
+        init_live_power_plot(
+          xlab = x_label_live,
+          title = sprintf("Method: %s (%s)", tolower(input$calc_method), input$analysis_type),
+          target_power = if (input$analysis_type == "Sample Size") input$target_power else NULL
+        )
+        point_cb <- function(n_value, power_value) {
+          push_live_power_point(n_value, power_value)
+          iter_count <<- iter_count + 1L
+          if (iter_step > 0) {
+            incProgress(
+              iter_step,
+              detail = sprintf("Computed %d/%d points (N=%s, Power=%.3f)", iter_count, iter_total, n_value, power_value)
+            )
+          }
+        }
+
         make_power_plot <- function(df_power, title_suffix = "") {
           pal <- theme_palette()
           ggplot(df_power, aes(x = N_per_arm, y = Power, group = 1)) +
             geom_line(size = 1.2, alpha = 0.9, color = pal[1]) +
             geom_point(size = 3.5, color = pal[2]) +
-            scale_y_continuous(limits = c(0,1)) +
+            geom_text(
+              aes(label = sprintf("N=%s\nP=%.3f", N_per_arm, Power)),
+              vjust = -0.6, size = 3, color = pal[2], check_overlap = TRUE
+            ) +
+            scale_y_continuous(limits = c(0,1), expand = expansion(mult = c(0.02, 0.12))) +
+            coord_cartesian(ylim = c(0, 1.05), clip = "off") +
             labs(x = "Sample size per arm", y = "Power", title = paste("Method:", title_suffix)) +
+            theme(plot.margin = margin(10, 20, 10, 10)) +
             transparent_theme(base_size = 13)
         }
         
-        
-        # parse Ns
-        if (input$analysis_type == "Power") {
-          n_vec <- as.numeric(trimws(strsplit(input$sample_sizes, ",")[[1]]))
-          n_vec <- n_vec[is.finite(n_vec) & n_vec > 0]
-          if (!length(n_vec)) n_vec <- c(100,150,200)
-        } else {
-          # grid for hunting minimum N meeting target_power
-          grid <- seq(30, 1000, by = 10)
-        }
         
         if (input$calc_method == "Repeated") {
           R <- input$R_reps %||% 500
@@ -1603,7 +1744,8 @@ server <- function(input, output, session) {
               pilot_data_clean, input$time_var, input$status_var, input$arm_var,
               n_per_arm_vec = n_vec, alpha = input$alpha, R = R,
               strata_var = if ("stratum" %in% names(analysis_data)) input$strata_var else NULL,
-              seed = if (is.na(input$seed_reps)) NULL else as.integer(input$seed_reps)
+              seed = if (is.na(input$seed_reps)) NULL else as.integer(input$seed_reps),
+              point_cb = point_cb
             )
             results_plot <- make_power_plot(power_df, "repeated")
             results_data <- power_df
@@ -1613,7 +1755,8 @@ server <- function(input, output, session) {
               pilot_data_clean, input$time_var, input$status_var, input$arm_var,
               n_per_arm_vec = grid, alpha = input$alpha, R = R,
               strata_var = if ("stratum" %in% names(analysis_data)) input$strata_var else NULL,
-              seed = if (is.na(input$seed_reps)) NULL else as.integer(input$seed_reps)
+              seed = if (is.na(input$seed_reps)) NULL else as.integer(input$seed_reps),
+              point_cb = point_cb
             )
             meet <- subset(power_df, Power >= input$target_power)
             n_star <- if (nrow(meet)) min(meet$N_per_arm) else NA
@@ -1644,7 +1787,8 @@ server <- function(input, output, session) {
                 sample_sizes        = n_vec,
                 linear_terms        = input$dc_linear_terms %||% character(0),
                 L                   = input$L,
-                alpha               = input$alpha
+                alpha               = input$alpha,
+                point_cb            = point_cb
               )
               results_plot    <- dc$results_plot
               results_data    <- dc$results_data
@@ -1663,7 +1807,8 @@ server <- function(input, output, session) {
                 alpha               = input$alpha,
                 n_start             = 50,
                 n_step              = 25,
-                max_n_per_arm       = 2000
+                max_n_per_arm       = 2000,
+                point_cb            = point_cb
               )
               results_plot    <- dc$results_plot
               results_data    <- dc$results_data
@@ -1680,7 +1825,8 @@ server <- function(input, output, session) {
                 sample_sizes = n_vec,
                 linear_terms = NULL,
                 L            = input$L,
-                alpha        = input$alpha
+                alpha        = input$alpha,
+                point_cb     = point_cb
               )
             } else {
               lin <- linear.ss.analytical.app(
@@ -1694,7 +1840,8 @@ server <- function(input, output, session) {
                 alpha         = input$alpha,
                 n_start       = 50,
                 n_step        = 25,
-                max_n_per_arm = 2000
+                max_n_per_arm = 2000,
+                point_cb      = point_cb
               )
             }
             results_plot    <- lin$results_plot
@@ -1712,7 +1859,8 @@ server <- function(input, output, session) {
                 sample_sizes = n_vec,
                 linear_terms = NULL,
                 L            = input$L,
-                alpha        = input$alpha
+                alpha        = input$alpha,
+                point_cb     = point_cb
               )
             } else {
               add <- additive.ss.analytical.app(
@@ -1727,7 +1875,8 @@ server <- function(input, output, session) {
                 alpha         = input$alpha,
                 n_start       = 50,
                 n_step        = 25,
-                max_n_per_arm = 2000
+                max_n_per_arm = 2000,
+                point_cb      = point_cb
               )
             }
             results_plot    <- add$results_plot
@@ -1745,7 +1894,8 @@ server <- function(input, output, session) {
                 sample_sizes = n_vec,
                 linear_terms = NULL,
                 L            = input$L,
-                alpha        = input$alpha
+                alpha        = input$alpha,
+                point_cb     = point_cb
               )
             } else {
               mul <- MS.ss.analytical.app(
@@ -1760,7 +1910,8 @@ server <- function(input, output, session) {
                 alpha         = input$alpha,
                 n_start       = 50,
                 n_step        = 25,
-                max_n_per_arm = 2000
+                max_n_per_arm = 2000,
+                point_cb      = point_cb
               )
             }
             results_plot    <- mul$results_plot
@@ -1796,6 +1947,7 @@ server <- function(input, output, session) {
   })
   
   observeEvent(run_analysis_results(), {
+    rv$live_power_active <- FALSE
     run_output(run_analysis_results())
     shinyjs::show(id = "download_reset_row")
     updateTabsetPanel(session, "main_tabs", selected = "Summary")
@@ -1853,7 +2005,7 @@ server <- function(input, output, session) {
       sp <- plotly::layout(
         sp,
         title = list(
-          text = sprintf("Kaplan–Meier — %s by %s", input$arm_var, input$strata_var),
+          text = sprintf("Kaplan-Meier - %s by %s", input$arm_var, input$strata_var),
           x = 0.02, xanchor = "left"
         ),
         paper_bgcolor = "rgba(0,0,0,0)",
@@ -1873,7 +2025,7 @@ server <- function(input, output, session) {
         legend.labs  = pretty_arm_labels(plot_data$arm),
         xlab = paste("Time in the units of", input$time_var),
         ylab = "Survival probability",
-        title = sprintf("Kaplanâ€“Meier â€” %s", input$arm_var),
+        title = sprintf("Kaplan-Meier - %s", input$arm_var),
         showlegend = TRUE
       )
     }
@@ -1883,11 +2035,13 @@ server <- function(input, output, session) {
   
   
   
-  # Power plot (already colorful and connected via make_power_plot)
+  # Power plot (supports live incremental updates during computation)
   output$results_plot <- renderPlotly({
+    if (isTRUE(rv$live_power_active)) {
+      return(build_live_power_plot())
+    }
     req(run_output()$results$results_plot)
     to_plotly_clear(run_output()$results$results_plot)
-    
   })
   
   # Summary (tables only)
@@ -1945,7 +2099,7 @@ server <- function(input, output, session) {
     contentType = "application/pdf",
     content = function(file) {
       req(run_output()$results)
-      id <- showNotification("Generating PDF report…", type="message", duration = NULL, closeButton = FALSE)
+      id <- showNotification("Generating PDF report...", type="message", duration = NULL, closeButton = FALSE)
       on.exit(removeNotification(id), add = TRUE)
       tpl <- make_inline_template()
       rmarkdown::render(
@@ -1970,7 +2124,7 @@ server <- function(input, output, session) {
     contentType = "text/html",
     content = function(file) {
       req(run_output()$results)
-      id <- showNotification("Generating HTML report…", type="message", duration = NULL, closeButton = FALSE)
+      id <- showNotification("Generating HTML report...", type="message", duration = NULL, closeButton = FALSE)
       on.exit(removeNotification(id), add = TRUE)
       tpl <- make_inline_template()
       rmarkdown::render(

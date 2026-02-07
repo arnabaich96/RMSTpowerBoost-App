@@ -118,9 +118,16 @@ linear.power.boot.app <- function(pilot_data, time_var, status_var, arm_var,
   p <- ggplot2::ggplot(results_df, ggplot2::aes(x = N_per_Arm, y = Power)) +
     ggplot2::geom_line(color = "#D55E00", linewidth = 1) +
     ggplot2::geom_point(color = "#D55E00", size = 3) +
+    ggplot2::geom_text(
+      ggplot2::aes(label = sprintf("N=%s\nP=%.3f", N_per_Arm, Power)),
+      vjust = -0.6, size = 3, color = "#D55E00", check_overlap = TRUE
+    ) +
+    ggplot2::scale_y_continuous(limits = c(0, 1), expand = ggplot2::expansion(mult = c(0.02, 0.12))) +
+    ggplot2::coord_cartesian(ylim = c(0, 1.05), clip = "off") +
     ggplot2::labs(title = "Power Curve: Linear IPCW RMST Model",
                   x = "Sample Size Per Arm", y = "Estimated Power") +
-    ggplot2::ylim(0, 1) + ggplot2::theme_minimal()
+    ggplot2::theme_minimal() +
+    ggplot2::theme(plot.margin = ggplot2::margin(10, 20, 10, 10))
   
   end_time <- proc.time()
   elapsed_time <- round((end_time - start_time)["elapsed"], 2)
@@ -227,11 +234,18 @@ linear.ss.boot.app <- function(pilot_data, time_var, status_var, arm_var,
   p <- ggplot2::ggplot(stats::na.omit(search_path_df), ggplot2::aes(x = N_per_Arm, y = Power)) +
     ggplot2::geom_line(color = "#009E73", linewidth = 1) +
     ggplot2::geom_point(color = "#009E73", size = 3) +
+    ggplot2::geom_text(
+      ggplot2::aes(label = sprintf("N=%s\nP=%.3f", N_per_Arm, Power)),
+      vjust = -0.6, size = 3, color = "#009E73", check_overlap = TRUE
+    ) +
     ggplot2::geom_hline(yintercept = target_power, linetype = "dashed", color = "red") +
     ggplot2::geom_vline(xintercept = final_n, linetype = "dotted", color = "blue") +
+    ggplot2::scale_y_continuous(limits = c(0, 1), expand = ggplot2::expansion(mult = c(0.02, 0.12))) +
+    ggplot2::coord_cartesian(ylim = c(0, 1.05), clip = "off") +
     ggplot2::labs(title = "Sample Size Search Path: Linear IPCW RMST Model",
                   x = "Sample Size Per Arm", y = "Calculated Power") +
-    ggplot2::theme_minimal()
+    ggplot2::theme_minimal() +
+    ggplot2::theme(plot.margin = ggplot2::margin(10, 20, 10, 10))
   
   end_time <- proc.time()
   elapsed_time <- round((end_time - start_time)["elapsed"], 2)
