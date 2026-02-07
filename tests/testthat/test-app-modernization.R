@@ -40,7 +40,7 @@ test_that("report input snapshot includes reproducibility-related fields", {
   out <- fn(x)
   expect_named(out, c(
     "model_selection", "analysis_type", "time_var", "status_var", "arm_var",
-    "strata_var", "dc_linear_terms", "calc_method", "L", "alpha",
+    "strata_var", "dc_linear_terms", "calc_method", "full_truncation", "alpha",
     "sample_sizes", "target_power", "sim_seed", "seed_reps", "replications",
     "data_mode"
   ))
@@ -76,7 +76,8 @@ test_that("pipeline html page exists with expected sections", {
   html_path <- file.path(app_root, "www", "pipeline.html")
   expect_true(file.exists(html_path))
   html <- paste(readLines(html_path, warn = FALSE), collapse = "\n")
-  expect_match(html, "RMSTpowerBoost Workflow", perl = TRUE)
-  expect_match(html, "Step 1b\\. Upload-Only Data Cleaning", perl = TRUE)
-  expect_match(html, "Quick Troubleshooting", perl = TRUE)
+  expect_match(html, "RMSTpowerBoost Pipeline", perl = TRUE)
+  expect_match(html, "Step 1\\. Data Upload or Generate", perl = TRUE)
+  expect_match(html, "Step 4\\. Analysis", perl = TRUE)
+  expect_match(html, "Reset Workflow", perl = TRUE)
 })

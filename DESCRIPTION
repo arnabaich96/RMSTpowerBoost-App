@@ -32,5 +32,6 @@ Suggests:
     purrr,
     stringr,
     tibble,
-    tidyr
+    tidyr,
+    shinytest2
 RoxygenNote: 7.3.3

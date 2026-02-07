@@ -1,114 +1,74 @@
-<div class="rmst-home">
-  <div class="home-wrap">
+﻿<div class="section-card">
+  <h2 class="section-title">RMSTpowerBoost Pipeline</h2>
+  <p class="section-lead">Use the workflow in order. Each of Steps 1-3 has a Confirm button (check mark) and a Reset button (round arrow). The standalone Workflow Reset is available at all times.</p>
+</div>
 
-    <section class="hero">
-      <div class="kicker">RMSTpowerBoost</div>
-      <h1>RMST-based Power and Sample Size Planning</h1>
-      <p class="lead">
-        Upload pilot data or generate a synthetic pilot dataset, clean missingness, map variables,
-        then compute power or required sample size using analytical or repeated methods.
-      </p>
-      <div class="hero-actions">
-        <a class="btn btn-primary" href="#step1">Start: Step 1</a>
-        <a class="btn btn-default" href="#outputs">See outputs</a>
-        <a class="btn btn-link" href="#trouble">Troubleshooting</a>
-      </div>
-    </section>
+<div class="section-card" id="quick-start">
+  <h3 class="section-title">4-Step Flow</h3>
+  <p class="section-lead">The next step appears only after confirming the current one. After confirmation, the previous step UI is hidden.</p>
+  <ol>
+    <li><strong>Step 1. Data Upload or Generate</strong>: choose the source mode.</li>
+    <li><strong>Step 2. Generation or MICE</strong>: configure generation (if Generate mode) or run cleaning/MICE (if Upload mode).</li>
+    <li><strong>Step 3. Model and Mapping</strong>: select model first, then map required columns.</li>
+    <li><strong>Step 4. Analysis</strong>: set Full Truncation, calculation method, target inputs, and run.</li>
+  </ol>
+</div>
 
-    <div class="grid">
+<div class="section-card" id="step1">
+  <h3 class="section-title">Step 1. Data Upload or Generate</h3>
+  <ul>
+    <li><strong>A) Generate Data</strong>: open the generation pathway.</li>
+    <li><strong>B) Upload Pilot Data</strong>: upload <code>.csv</code>, <code>.txt</code>, <code>.tsv</code>, <code>.rds</code>, or <code>.RData</code>.</li>
+    <li>Use <strong>✓ Confirm Step 1</strong> to lock your choice for the current pass.</li>
+    <li>Use <strong>↻ Reset Step 1</strong> to return to Upload mode defaults.</li>
+  </ul>
+</div>
 
-      <section class="card half" id="step1">
-        <div class="card-head">
-          <span class="step">Step 1</span>
-          <h2>Upload or Generate Data</h2>
-        </div>
-        <ul>
-          <li><strong>Upload</strong>: import pilot data in <code>.csv</code>, <code>.txt</code>, <code>.tsv</code>, <code>.rds</code>, or <code>.RData</code>.</li>
-          <li><strong>Generate</strong>: specify covariates, model family, coefficients, censoring target, and seed.</li>
-          <li><strong>Recommendation</strong>: use ≥ 100 observations when feasible for stable diagnostics.</li>
-        </ul>
-      </section>
-
-      <section class="card half">
-        <div class="card-head">
-          <span class="step">Step 1b</span>
-          <h2>Upload-only Cleaning</h2>
-        </div>
-        <ul>
-          <li>Missingness is checked immediately after upload.</li>
-          <li>A missingness profile by column is shown in <strong>Data Preview</strong>.</li>
-          <li>If missing values exist, choose a cleaning mode: ignore rows, impute, or both.</li>
-          <li>Cleaning actions and outcomes are recorded in the <strong>Run Log</strong>.</li>
-        </ul>
-      </section>
-
-      <section class="card half">
-        <div class="card-head">
-          <span class="step">Optional</span>
-          <h2>MICE Imputation</h2>
-        </div>
-        <ul>
-          <li>Builds a method map via <code>mice::make.method</code>, then assigns a default method (e.g., <code>pmm</code>, <code>norm</code>, <code>cart</code>, <code>rf</code>).</li>
-          <li>Columns with empty method are excluded from imputation and reported in the Run Log.</li>
-          <li>Runs with your chosen <code>m</code>, <code>maxit</code>, and seed; the first completed dataset is used downstream.</li>
-          <li>Any remaining missingness is reported so you can adjust settings.</li>
-        </ul>
-      </section>
-
-      <section class="card half">
-        <div class="card-head">
-          <span class="step">Step 2</span>
-          <h2>Map Variables & Configure Method</h2>
-        </div>
-        <ul>
-          <li>Map <code>time</code>, <code>status</code>, <code>arm</code>, and optional <code>strata</code>.</li>
-          <li>Select target: power or sample size; pick RMST model and method (analytical vs repeated).</li>
-          <li>Specify <code>tau</code>, <code>alpha</code>, and either target power or sample size inputs.</li>
-        </ul>
-      </section>
-
-      <section class="card half">
-        <div class="card-head">
-          <span class="step">Step 3</span>
-          <h2>Confirm & Run</h2>
-        </div>
-        <ul>
-          <li>Use <strong>Confirm Step 2</strong> to lock mapping and setup.</li>
-          <li>Run analysis once the readiness checklist is satisfied.</li>
-          <li>Progress and diagnostics appear in <strong>Run Log</strong>.</li>
-        </ul>
-      </section>
-
-      <section class="card half" id="outputs">
-        <div class="card-head">
-          <span class="step">Outputs</span>
-          <h2>Results & Downloads</h2>
-        </div>
-        <ul>
-          <li><strong>Plot Output</strong>: covariate distributions, Kaplan–Meier plots, power curves.</li>
-          <li><strong>Summary</strong>: key results plus analysis/data summary tables.</li>
-          <li><strong>Run Log</strong>: cleaning and execution messages.</li>
-          <li><strong>Reports</strong>: download HTML and PDF after a completed run.</li>
-        </ul>
-
-        <div class="callout">
-          <b>PDF note:</b> PDF generation requires LaTeX (MiKTeX or TinyTeX). If it fails, export HTML and use the log to resolve missing LaTeX packages.
-        </div>
-      </section>
-
-      <section class="card" id="trouble">
-        <div class="card-head">
-          <span class="step">Help</span>
-          <h2>Quick Troubleshooting</h2>
-        </div>
-        <ul>
-          <li><strong>Checklist not ready</strong>: verify mapped columns, binary status, and a two-level treatment arm.</li>
-          <li><strong>Missing data blocks analysis</strong>: complete Step 1b cleaning first.</li>
-          <li><strong>No plots/summary</strong>: rerun and inspect the Run Log for model/fit errors.</li>
-          <li><strong>PDF filename issues</strong>: confirm report handlers return a path ending in <code>.pdf</code>.</li>
-        </ul>
-      </section>
-
+<div class="section-card" id="step2">
+  <h3 class="section-title">Step 2. Generation or MICE</h3>
+  <div class="row g-3">
+    <div class="col-md-6">
+      <h4 class="mt-0">Generate Path</h4>
+      <ul>
+        <li>Define covariates and event-time settings.</li>
+        <li>Generate data and review validation cues.</li>
+        <li>Use <strong>✓ Confirm Step 2</strong> and <strong>↻ Reset Step 2</strong>.</li>
+      </ul>
+    </div>
+    <div class="col-md-6">
+      <h4 class="mt-0">Upload/MICE Path</h4>
+      <ul>
+        <li>Profile missingness and apply dropping/MICE options.</li>
+        <li>Confirm when missingness is resolved for analysis.</li>
+        <li>Use <strong>✓ Confirm Step 2</strong> and <strong>↻ Reset Step 2</strong>.</li>
+      </ul>
     </div>
   </div>
+</div>
+
+<div class="section-card" id="step3">
+  <h3 class="section-title">Step 3. Model and Mapping</h3>
+  <ul>
+    <li><strong>Model Selection comes first</strong> across the full row.</li>
+    <li>Column mapping is next: <code>time</code>, <code>status</code>, <code>arm</code>, and optional <code>strata</code>.</li>
+    <li>Use <strong>✓ Confirm Step 3</strong> to unlock the run controls.</li>
+    <li>Use <strong>↻ Reset Step 3</strong> to restore default model + auto-mapping.</li>
+  </ul>
+</div>
+
+<div class="section-card" id="step4">
+  <h3 class="section-title">Step 4. Analysis</h3>
+  <ul>
+    <li>Set <strong>Full Truncation</strong>, calculation method, alpha, and target inputs.</li>
+    <li>Run analysis and inspect Plot Output, Summary, and Run Log.</li>
+    <li>You can modify Step 4 inputs repeatedly and rerun without returning to Steps 1-3.</li>
+  </ul>
+</div>
+
+<div class="section-card" id="notes">
+  <h3 class="section-title">Reset Behavior</h3>
+  <ul class="mb-0">
+    <li><strong>↻ Reset Workflow</strong> is standalone and returns the app to Step 1 from any stage.</li>
+    <li>Step-level reset buttons only reset the current stage.</li>
+  </ul>
 </div>
