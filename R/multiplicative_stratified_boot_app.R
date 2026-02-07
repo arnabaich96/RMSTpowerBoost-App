@@ -20,7 +20,7 @@
    # Model with stratum-specific intercepts and stratum-specific treatment effects
    all_terms <- c(strata_var, paste0(strata_var, ":", arm_var), linear_terms)
    model_rhs <- paste(all_terms[!sapply(all_terms, is.null)], collapse = " + ")
-   model_formula <- as.formula(paste("log_pseudo_obs ~", model_rhs))
+  model_formula <- stats::as.formula(paste("log_pseudo_obs ~", model_rhs))
    message("Model: log(pseudo_obs) ~ ", model_rhs)
    test_term_pattern <- paste0(":", arm_var, "1$")
 
@@ -165,7 +165,7 @@ MS.power.boot.app <- function(pilot_data, time_var, status_var, arm_var, strata_
    results_summary <- NULL
    # Use estimates from the largest sample size simulation for the summary
    if (length(sim_outputs) > 0) {
-      est <- na.omit(sim_outputs[[length(sim_outputs)]]$estimates)
+      est <- stats::na.omit(sim_outputs[[length(sim_outputs)]]$estimates)
       if (length(est) > 1) {
          results_summary <- data.frame(
             Statistic = c("Mean RMST Ratio", "95% CI Lower", "95% CI Upper"),
@@ -296,7 +296,7 @@ MS.ss.boot.app <- function(pilot_data, time_var, status_var, arm_var, strata_var
    # --- Finalize Summary and Results ---
    results_summary <- NULL
    if (!is.null(best_sim_output)) {
-      est <- na.omit(best_sim_output$estimates)
+      est <- stats::na.omit(best_sim_output$estimates)
       if (length(est) > 1) {
          results_summary <- data.frame(
             Statistic = c("Mean RMST Ratio", "95% CI Lower", "95% CI Upper"),
@@ -309,7 +309,7 @@ MS.ss.boot.app <- function(pilot_data, time_var, status_var, arm_var, strata_var
    search_path_df <- data.frame(N_per_Stratum = as.integer(names(search_path)), Power = unlist(search_path))
 
    # --- Create Plot ---
-   p <- ggplot2::ggplot(na.omit(search_path_df), ggplot2::aes(x = N_per_Stratum, y = Power)) +
+  p <- ggplot2::ggplot(stats::na.omit(search_path_df), ggplot2::aes(x = N_per_Stratum, y = Power)) +
       ggplot2::geom_line(color = "#009E73", linewidth = 1) +
       ggplot2::geom_point(color = "#009E73", size = 3) +
       ggplot2::geom_hline(yintercept = target_power, linetype = "dashed", color = "red") +

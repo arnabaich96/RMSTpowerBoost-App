@@ -115,7 +115,7 @@ DC.power.analytical.app <- function(pilot_data,
       ggplot2::geom_point(color = "#0072B2", size = 3) +
       ggplot2::labs(
          title = "Analytic Power Curve: RMST with Covariate-Dependent Censoring (IPCW)",
-         subtitle = "Single censoring mechanism; variance ignores uncertainty in Ĝ.",
+         subtitle = "Single censoring mechanism; variance ignores uncertainty in G-hat.",
          x = "Sample Size Per Arm", y = "Estimated Power"
       ) +
       ggplot2::ylim(0, 1) +
@@ -191,7 +191,7 @@ DC.ss.analytical.app <- function(pilot_data,
       Power = as.numeric(unlist(search_path))
    )
 
-   p <- ggplot2::ggplot(na.omit(search_path_df), ggplot2::aes(x = N_per_Arm, y = Power)) +
+  p <- ggplot2::ggplot(stats::na.omit(search_path_df), ggplot2::aes(x = N_per_Arm, y = Power)) +
       ggplot2::geom_line(color = "#009E73", linewidth = 1) +
       ggplot2::geom_point(color = "#009E73", size = 3) +
       ggplot2::geom_hline(yintercept = target_power, linetype = "dashed", color = "red") +

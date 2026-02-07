@@ -8,27 +8,28 @@ License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: true
 Imports:
-    bslib,
-    DT,
     stats,
     utils,
-    shiny,
-    shinyjs,
     survival,
     ggplot2,
     dplyr,
-    tidyr,
-    purrr,
-    stringr,
-    tibble,
     mgcv,
     future,
     future.apply,
-    rmarkdown,
     knitr,
-    scales,
-    kableExtra,
-    plotly
+    scales
 Suggests:
     testthat (>= 3.0.0),
-    covr
+    covr,
+    bslib,
+    DT,
+    shiny,
+    shinyjs,
+    plotly,
+    kableExtra,
+    rmarkdown,
+    purrr,
+    stringr,
+    tibble,
+    tidyr
+RoxygenNote: 7.3.3

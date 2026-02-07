@@ -65,7 +65,7 @@
     stop("The design matrix (A_hat) is singular. This can happen with small pilot datasets or perfect separation.", call. = FALSE)
   })
   
-  df$predicted_rmst <- predict(fit_lm, newdata = df)
+  df$predicted_rmst <- stats::predict(fit_lm, newdata = df)
   residuals <- df$Y_rmst - df$predicted_rmst
   
   epsilon <- X * residuals * df$weights
@@ -191,7 +191,7 @@ linear.ss.analytical.app <- function(pilot_data, time_var, status_var, arm_var,
   results_df <- data.frame(Target_Power = target_power, Required_N_per_Arm = final_n)
   search_path_df <- data.frame(N_per_Arm = as.integer(names(search_path)), Power = unlist(search_path))
   
-  p <- ggplot2::ggplot(na.omit(search_path_df), ggplot2::aes(x = N_per_Arm, y = Power)) +
+  p <- ggplot2::ggplot(stats::na.omit(search_path_df), ggplot2::aes(x = N_per_Arm, y = Power)) +
     ggplot2::geom_line(color = "#009E73", linewidth = 1) +
     ggplot2::geom_point(color = "#009E73", size = 3) +
     ggplot2::geom_hline(yintercept = target_power, linetype = "dashed", color = "red") +

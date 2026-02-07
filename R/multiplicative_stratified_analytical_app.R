@@ -15,7 +15,7 @@
   df <- pilot_data[stats::complete.cases(pilot_data[, all_vars]), ]
   n_pilot <- nrow(df)
   min_events_per_stratum <- 2 # Define a minimum threshold
-  event_counts <- stats::aggregate(as.formula(paste(status_var, "~", strata_var)), 
+  event_counts <- stats::aggregate(stats::as.formula(paste(status_var, "~", strata_var)), 
                             data = df, 
                             FUN = sum)
   
@@ -55,7 +55,7 @@
       }
     }
   }
-  df$weights <- exp(df$H_cens * exp(predict(fit_cens, newdata = df, type="lp", reference="zero")))
+  df$weights <- exp(df$H_cens * exp(stats::predict(fit_cens, newdata = df, type="lp", reference="zero")))
   
   # Stabilize weights
   finite_weights <- df$weights[is.finite(df$weights)]
@@ -78,13 +78,13 @@
     stop("Not enough data points to fit the approximation model after filtering.", call. = FALSE)
   }
   
-  fit_log_lm <- lm(log_model_formula, data = fit_data, weights = fit_weights)
+  fit_log_lm <- stats::lm(log_model_formula, data = fit_data, weights = fit_weights)
   
-  beta_summary <- coef(summary(fit_log_lm))
+  beta_summary <- stats::coef(summary(fit_log_lm))
   beta_effect <- beta_summary[arm_var, "Estimate"]
   
   # --- 2. Calculate Asymptotic Variance from the approximate model ---
-  V_hat <- vcov(fit_log_lm) * nrow(fit_data) # Scale to Var(sqrt(n)*beta)
+  V_hat <- stats::vcov(fit_log_lm) * nrow(fit_data) # Scale to Var(sqrt(n)*beta)
   var_beta_n1 <- V_hat[arm_var, arm_var]
   se_beta_n1 <- sqrt(var_beta_n1)
   
@@ -197,7 +197,7 @@ MS.ss.analytical.app <- function(pilot_data, time_var, status_var, arm_var, stra
   results_df <- data.frame(Target_Power = target_power, Required_N_per_Stratum = final_n)
   search_path_df <- data.frame(N_per_Stratum = as.integer(names(search_path)), Power = unlist(search_path))
   
-  p <- ggplot2::ggplot(na.omit(search_path_df), ggplot2::aes(x = N_per_Stratum, y = Power)) +
+  p <- ggplot2::ggplot(stats::na.omit(search_path_df), ggplot2::aes(x = N_per_Stratum, y = Power)) +
     ggplot2::geom_line(color = "#009E73", linewidth = 1) +
     ggplot2::geom_point(color = "#009E73", size = 3) +
     ggplot2::geom_hline(yintercept = target_power, linetype = "dashed", color = "red") +

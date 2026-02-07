@@ -140,8 +140,7 @@
       "NeedsCompilation": "yes",
       "Author": "Brian Ripley [aut, cre, cph], Bill Venables [aut, cph], Douglas M. Bates [ctb], Kurt Hornik [trl] (partial port ca 1998), Albrecht Gebhardt [trl] (partial port ca 1998), David Firth [ctb] (support functions for polr)",
       "Maintainer": "Brian Ripley <Brian.Ripley@R-project.org>",
-      "Repository": "RSPM",
-      "Encoding": "UTF-8"
+      "Repository": "CRAN"
     },
     "Matrix": {
       "Package": "Matrix",
@@ -669,8 +668,7 @@
       "License": "Unlimited",
       "NeedsCompilation": "no",
       "Author": "Angelo Canty [aut] (author of original code for S), Brian Ripley [aut, trl] (conversion to R, maintainer 1999--2022, author of parallel support), Alessandra R. Brazzale [ctb, cre] (minor bug fixes)",
-      "Repository": "RSPM",
-      "Encoding": "UTF-8"
+      "Repository": "CRAN"
     },
     "brio": {
       "Package": "brio",
@@ -1089,8 +1087,7 @@
       "URL": "https://gitlab.com/luke-tierney/codetools",
       "License": "GPL",
       "NeedsCompilation": "no",
-      "Repository": "RSPM",
-      "Encoding": "UTF-8"
+      "Repository": "CRAN"
     },
     "colorspace": {
       "Package": "colorspace",
@@ -3022,8 +3019,7 @@
       "NeedsCompilation": "yes",
       "Author": "Deepayan Sarkar [aut, cre] (<https://orcid.org/0000-0003-4107-1553>), Felix Andrews [ctb], Kevin Wright [ctb] (documentation), Neil Klepeis [ctb], Johan Larsson [ctb] (miscellaneous improvements), Zhijian (Jason) Wen [cph] (filled contour code), Paul Murrell [ctb], Stefan Eng [ctb] (violin plot improvements), Achim Zeileis [ctb] (modern colors), Alexandre Courtiol [ctb] (generics for larrows, lpolygon, lrect and lsegments)",
       "Maintainer": "Deepayan Sarkar <deepayan.sarkar@r-project.org>",
-      "Repository": "RSPM",
-      "Encoding": "UTF-8"
+      "Repository": "CRAN"
     },
     "lazyeval": {
       "Package": "lazyeval",
@@ -3408,8 +3404,7 @@
       "NeedsCompilation": "yes",
       "Author": "Simon Wood [aut, cre]",
       "Maintainer": "Simon Wood <simon.wood@r-project.org>",
-      "Repository": "RSPM",
-      "Encoding": "UTF-8"
+      "Repository": "CRAN"
     },
     "microbenchmark": {
       "Package": "microbenchmark",
@@ -3634,8 +3629,7 @@
       "NeedsCompilation": "yes",
       "Author": "Brian Ripley [aut, cre, cph], William Venables [cph]",
       "Maintainer": "Brian Ripley <Brian.Ripley@R-project.org>",
-      "Repository": "RSPM",
-      "Encoding": "UTF-8"
+      "Repository": "CRAN"
     },
     "numDeriv": {
       "Package": "numDeriv",
@@ -4097,8 +4091,7 @@
       ],
       "Collate": "'adjective.R' 'adverb.R' 'exclamation.R' 'verb.R' 'rpackage.R' 'package.R'",
       "NeedsCompilation": "no",
-      "Repository": "RSPM",
-      "Encoding": "UTF-8"
+      "Repository": "CRAN"
     },
     "processx": {
       "Package": "processx",
@@ -5158,8 +5151,7 @@
       "NeedsCompilation": "yes",
       "Author": "Terry M Therneau [aut, cre], Thomas Lumley [ctb, trl] (original S->R port and R maintainer until 2009), Atkinson Elizabeth [ctb], Crowson Cynthia [ctb]",
       "Maintainer": "Terry M Therneau <therneau.terry@mayo.edu>",
-      "Repository": "RSPM",
-      "Encoding": "UTF-8"
+      "Repository": "CRAN"
     },
     "survminer": {
       "Package": "survminer",

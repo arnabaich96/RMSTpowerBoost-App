@@ -2,3 +2,10 @@
 ^renv\.lock$
 ^.*\.Rproj$
 ^\.Rproj\.user$
+^LICENSE\.md$
+^RMSTpowerBoost-App\.code-workspace$
+^app\.R$
+^codecov\.yml$
+^rsconnect$
+^sim\.data$
+^\.github$

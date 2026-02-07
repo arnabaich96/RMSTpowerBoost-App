@@ -5,23 +5,115 @@ packages <- c(
   "shiny","shinyjs","bslib","DT","ggplot2","plotly","survival",
   "kableExtra","magrittr","rmarkdown","dplyr","tidyr","purrr","stringr","tibble"
 )
-invisible(lapply(packages, function(pkg){
-  # if (!requireNamespace(pkg, quietly = TRUE)) install.packages(pkg)
-  require(pkg, character.only = TRUE)
+missing_pkgs <- packages[!vapply(packages, requireNamespace, logical(1), quietly = TRUE)]
+if (length(missing_pkgs)) {
+  stop(
+    "Missing required package(s): ",
+    paste(missing_pkgs, collapse = ", "),
+    ". Please install them before launching the app.",
+    call. = FALSE
+  )
+}
+invisible(lapply(packages, function(pkg) {
+  suppressPackageStartupMessages(
+    library(pkg, character.only = TRUE)
+  )
 }))
 
 # ------------------ Source your R/ scripts (simulation engine etc.) ------------------
 if (dir.exists("R")) {
-  r_files <- list.files("R", pattern="\\.R$", full.names = TRUE)
-  sapply(r_files, source)
+  r_files <- sort(list.files("R", pattern = "\\.R$", full.names = TRUE))
+  if (!length(r_files)) {
+    stop("No R scripts found under 'R/'. App helpers could not be loaded.", call. = FALSE)
+  }
+  for (rf in r_files) {
+    tryCatch(
+      source(rf, local = FALSE),
+      error = function(e) {
+        stop("Failed to source helper script '", rf, "': ", conditionMessage(e), call. = FALSE)
+      }
+    )
+  }
   cat("All R scripts in the 'R/' directory have been sourced.\n")
 } else {
-  cat("No R/ directory found; make sure simulation helpers are available.\n")
+  stop("No R/ directory found; simulation helpers are unavailable.", call. = FALSE)
 }
 
 `%||%` <- function(x,y) if (is.null(x)) y else x
 
 # ------------------ Helpers ------------------
+coerce_time_positive <- function(x, field_name = "time") {
+  xn <- suppressWarnings(as.numeric(x))
+  bad <- is.na(xn) | !is.finite(xn) | xn <= 0
+  if (any(bad)) {
+    stop(sprintf("'%s' must contain only finite values > 0 with no missing values.", field_name), call. = FALSE)
+  }
+  xn
+}
+
+coerce_status_binary <- function(x, field_name = "status") {
+  if (is.logical(x)) return(as.integer(x))
+  if (is.factor(x)) x <- as.character(x)
+  if (is.character(x)) {
+    xl <- tolower(trimws(x))
+    one_labels <- c("1", "event", "events", "dead", "death", "yes", "true")
+    zero_labels <- c("0", "censor", "censored", "alive", "no", "false")
+    out <- rep(NA_integer_, length(xl))
+    out[xl %in% one_labels] <- 1L
+    out[xl %in% zero_labels] <- 0L
+    bad <- is.na(out)
+    if (any(bad)) {
+      stop(sprintf("'%s' must be binary (0/1 or recognized event/censor labels) with no missing values.", field_name), call. = FALSE)
+    }
+    return(out)
+  }
+  xn <- suppressWarnings(as.numeric(x))
+  if (any(is.na(xn) | !is.finite(xn))) {
+    stop(sprintf("'%s' must be binary (0/1) with no missing values.", field_name), call. = FALSE)
+  }
+  if (!all(unique(xn) %in% c(0, 1))) {
+    stop(sprintf("'%s' must be coded as 0/1 (or recognized binary labels).", field_name), call. = FALSE)
+  }
+  as.integer(xn)
+}
+
+coerce_arm_binary <- function(x, field_name = "arm") {
+  if (is.logical(x)) return(as.integer(x))
+  if (is.factor(x)) x <- as.character(x)
+  if (is.character(x)) {
+    xl <- tolower(trimws(x))
+    one_labels <- c("1", "treatment", "treated", "treat", "tx", "experimental", "active")
+    zero_labels <- c("0", "control", "placebo", "comparator", "standard")
+    out <- rep(NA_integer_, length(xl))
+    out[xl %in% one_labels] <- 1L
+    out[xl %in% zero_labels] <- 0L
+    if (all(!is.na(out))) return(out)
+    lev <- unique(xl[!is.na(xl) & nzchar(xl)])
+    if (length(lev) == 2L) {
+      mapped <- ifelse(xl == lev[1], 0L, ifelse(xl == lev[2], 1L, NA_integer_))
+      if (any(is.na(mapped))) {
+        stop(sprintf("'%s' contains missing/invalid values after binary mapping.", field_name), call. = FALSE)
+      }
+      return(mapped)
+    }
+    stop(sprintf("'%s' must have exactly 2 groups.", field_name), call. = FALSE)
+  }
+  xn <- suppressWarnings(as.numeric(x))
+  if (any(is.na(xn) | !is.finite(xn))) {
+    stop(sprintf("'%s' must have finite non-missing values.", field_name), call. = FALSE)
+  }
+  lev <- sort(unique(xn))
+  if (identical(lev, c(0, 1))) return(as.integer(xn))
+  if (length(lev) == 2L) return(as.integer(ifelse(xn == lev[1], 0L, 1L)))
+  stop(sprintf("'%s' must have exactly 2 groups.", field_name), call. = FALSE)
+}
+
+safe_output_id <- function(prefix, label) {
+  raw <- ifelse(is.null(label), "", as.character(label))
+  if (!nzchar(raw)) raw <- "var"
+  paste0(prefix, make.names(raw, unique = TRUE))
+}
+
 reset_cov_builder_ui <- function(session) {
   updateTextInput(session, "cov_name", value = "")
   updateSelectInput(session, "cov_type", selected = "continuous")
@@ -535,11 +627,130 @@ report_inputs_builder <- function(input) {
 
 # ------------------ UI ------------------
 ui <- fluidPage(
-  theme = bs_theme(version = 5, bootswatch = "flatly"),
+  theme = bs_theme(
+    version = 5,
+    bootswatch = "sandstone",
+    base_font = font_google("Space Grotesk"),
+    heading_font = font_google("Bebas Neue")
+  ),
+  tags$head(
+    tags$style(HTML("
+      :root {
+        --pb-bg-1: #f9fbf6;
+        --pb-bg-2: #e8f4ed;
+        --pb-accent: #0b6e4f;
+        --pb-accent-2: #ff7a18;
+        --pb-ink: #1f2b2a;
+        --pb-border: #d8e4dc;
+        --pb-card: rgba(255, 255, 255, 0.86);
+      }
+      body {
+        color: var(--pb-ink);
+        background:
+          radial-gradient(circle at 8% 6%, rgba(11, 110, 79, 0.10), transparent 28%),
+          radial-gradient(circle at 93% 14%, rgba(255, 122, 24, 0.14), transparent 24%),
+          linear-gradient(135deg, var(--pb-bg-1), var(--pb-bg-2));
+      }
+      .container-fluid {
+        max-width: 1580px;
+      }
+      .app-shell {
+        animation: shell-enter 420ms ease-out both;
+      }
+      @keyframes shell-enter {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      .title-panel h2,
+      .title-panel h3 {
+        letter-spacing: 0.04em;
+      }
+      .well, .panel, .tab-content, .shiny-input-container {
+        border-radius: 14px;
+      }
+      .well, .panel-default > .panel-heading, .tab-content {
+        border: 1px solid var(--pb-border);
+      }
+      .well, .tab-content {
+        background: var(--pb-card);
+        backdrop-filter: blur(3px);
+      }
+      .nav-tabs > li > a {
+        border-radius: 10px 10px 0 0;
+        font-weight: 600;
+      }
+      .nav-tabs > li.active > a,
+      .nav-tabs > li.active > a:hover {
+        color: var(--pb-accent);
+        border-color: var(--pb-border) var(--pb-border) transparent;
+      }
+      .btn-primary {
+        background: linear-gradient(120deg, var(--pb-accent), #0a9f6f);
+        border-color: transparent;
+      }
+      .btn-primary:hover, .btn-primary:focus {
+        background: linear-gradient(120deg, #095a42, var(--pb-accent));
+      }
+      .btn-success {
+        background: linear-gradient(120deg, #198754, #2cb67d);
+        border-color: transparent;
+      }
+      .btn-default {
+        border: 1px solid var(--pb-border);
+      }
+      .irs--shiny .irs-bar,
+      .irs--shiny .irs-single {
+        background: var(--pb-accent-2);
+        border-color: var(--pb-accent-2);
+      }
+      .dataTables_wrapper .dataTables_paginate .paginate_button.current {
+        border: 1px solid var(--pb-accent) !important;
+        background: #e3f1eb !important;
+        color: var(--pb-accent) !important;
+      }
+      .section-card {
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid var(--pb-border);
+        border-radius: 14px;
+        padding: 14px 16px;
+        margin-bottom: 14px;
+      }
+      .section-title {
+        margin-top: 0;
+        margin-bottom: 6px;
+        letter-spacing: 0.03em;
+      }
+      .section-lead {
+        margin-bottom: 10px;
+        color: #415654;
+      }
+      .metric-note {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--pb-border);
+        background: #f1f8f4;
+        color: #1f5e4a;
+        font-size: 12px;
+        margin-bottom: 8px;
+      }
+      @media (max-width: 992px) {
+        .container-fluid {
+          padding-left: 10px;
+          padding-right: 10px;
+        }
+        .well {
+          padding: 12px;
+        }
+      }
+    "))
+  ),
   useShinyjs(),
   titlePanel("RMSTpowerBoost: Power and Sample Size Calculator"),
   
-  sidebarLayout(
+  div(
+    class = "app-shell",
+    sidebarLayout(
     sidebarPanel(
       width = 4,
       # Step 1: Data (Upload or Generate)
@@ -645,53 +856,83 @@ ui <- fluidPage(
       width = 8,
       tabsetPanel(
         id = "main_tabs",
-        tabPanel("Instructions",
-                 h3("Welcome to RMSTpowerBoost"),
-                 p("This tool provides power and sample size analysis using Restricted Mean Survival Time."),
-                 tags$ol(
-                   tags$li("Step 1: Choose the data source."),
-                   tags$ul(
-                     tags$li("1a. Upload: Select a CSV file with pilot data."),
-                     tags$li("1b. Generate: Build covariates, choose model and censoring, set coefficients and intercept, then simulate.")
-                   ),
-                   tags$li("Step 2 and Step 3: After data is available, map columns and select analysis settings."),
-                   tags$ul(
-                     tags$li("2a. Map the time, status, and treatment columns."),
-                     tags$li("2b. Choose the target (Power or Sample Size) and analysis parameters."),
-                     tags$li("2c. Set the analysis horizon (τ) and the significance level (α).")
-                   ),
-                   tags$li("Run the analysis; download a report (PDF/HTML).")
+                tabPanel("Instructions",
+                 div(
+                   class = "section-card",
+                   h3(class = "section-title", "Welcome to RMSTpowerBoost"),
+                   p(class = "section-lead", "A structured workflow for RMST-based power and sample size design from pilot data."),
+                   tags$ol(
+                     tags$li("Step 1: Prepare data."),
+                     tags$li("Step 2: Map columns and configure model + analysis method."),
+                     tags$li("Step 3: Run analysis and review plots/tables."),
+                     tags$li("Step 4: Export PDF or HTML report.")
+                   )
                  ),
-                 hr(),
-                 h4("License Information"),
-                 verbatimTextOutput("license_display")
-        ),
-        tabPanel("Data Preview", DT::dataTableOutput("data_preview_table")),
-        tabPanel("Plot Output",
-                 h4("Covariate Distributions"),
-                 uiOutput("cov_plots_ui"),
-                 hr(),
-                 h4("Kaplan–Meier Survival Plots"),
-                 htmlOutput("km_note"),
-                 plotlyOutput("survival_plotly_output", height = "650px"),
-                 hr(),
-                 h4("Power vs. Sample Size"),
-                 plotlyOutput("results_plot", height = "520px")
-        ),
-        tabPanel("Summary",
-                 h4("Analysis Results (Tables Only)"),
-                 uiOutput("results_table_ui"),
-                 hr(),
-                 h4("Analysis Summary"),
-                 uiOutput("summary_table_ui"),
-                 hr(),
-                 h4("Data Summary"),
-                 uiOutput("data_summary_ui")
-        ),
-        tabPanel("Console Log", verbatimTextOutput("console_log_output"))
+                 div(
+                   class = "section-card",
+                   h4(class = "section-title", "Data Paths"),
+                   tags$ul(
+                     tags$li(strong("Upload"), ": Select a CSV pilot dataset."),
+                     tags$li(strong("Generate"), ": Define covariates, event-time model, censoring target, and coefficients.")
+                   ),
+                   p(class = "section-lead", "Use generated data for method exploration, and uploaded data for final planning.")
+                 ),
+                 div(
+                   class = "section-card",
+                   h4(class = "section-title", "Column Mapping Rules"),
+                   tags$ul(
+                     tags$li("Time must be finite and > 0."),
+                     tags$li("Status must map to binary event/censor coding."),
+                     tags$li("Treatment arm must contain exactly two groups."),
+                     tags$li("Stratified models require a mapped stratum variable.")
+                   )
+                 ),
+                 div(
+                   class = "section-card",
+                   h4(class = "section-title", "License Information"),
+                   verbatimTextOutput("license_display")
+                 )
+        ),        tabPanel("Data Preview", DT::dataTableOutput("data_preview_table")),
+                tabPanel("Plot Output",
+                 div(
+                   class = "section-card",
+                   h4(class = "section-title", "Covariate Distributions"),
+                   p(class = "section-lead", "Quick distribution checks for data quality and scale sanity."),
+                   uiOutput("cov_plots_ui")
+                 ),
+                 div(
+                   class = "section-card",
+                   h4(class = "section-title", "Kaplan-Meier Survival Plots"),
+                   span(class = "metric-note", "Exploratory diagnostic"),
+                   htmlOutput("km_note"),
+                   plotlyOutput("survival_plotly_output", height = "650px")
+                 ),
+                 div(
+                   class = "section-card",
+                   h4(class = "section-title", "Power vs. Sample Size"),
+                   span(class = "metric-note", "Primary planning output"),
+                   plotlyOutput("results_plot", height = "520px")
+                 )
+        ),                tabPanel("Summary",
+                 div(
+                   class = "section-card",
+                   h4(class = "section-title", "Power and Sample Size Results"),
+                   uiOutput("results_table_ui")
+                 ),
+                 div(
+                   class = "section-card",
+                   h4(class = "section-title", "Analysis Summary"),
+                   uiOutput("summary_table_ui")
+                 ),
+                 div(
+                   class = "section-card",
+                   h4(class = "section-title", "Data Summary"),
+                   uiOutput("data_summary_ui")
+                 )
+        ),        tabPanel("Console Log", verbatimTextOutput("console_log_output"))
       )
     )
-  )
+  ))
 )
 
 # ------------------ Repeated Power (no 'bootstrap' wording) ------------------
@@ -1254,7 +1495,9 @@ server <- function(input, output, session) {
     req(rv$data_df)
     plots <- covariate_plots(rv$data_df, arm_var = input$arm_var, palette = theme_palette())
     if (!length(plots)) return(p("No covariate plots are available."))
-    tagList(lapply(names(plots), function(nm) plotlyOutput(paste0("cov_plot_", nm), height = "300px")))
+    tagList(lapply(names(plots), function(nm) {
+      plotlyOutput(safe_output_id("cov_plot_", nm), height = "300px")
+    }))
   })
   
   # Render each plot
@@ -1263,7 +1506,7 @@ server <- function(input, output, session) {
     plots <- covariate_plots(rv$data_df, arm_var = input$arm_var, palette = theme_palette())
     lapply(names(plots), function(nm) {
       local({
-        id <- paste0("cov_plot_", nm)
+        id <- safe_output_id("cov_plot_", nm)
         p  <- plots[[nm]]
         output[[id]] <- renderPlotly({ p })
       })
@@ -1280,19 +1523,29 @@ server <- function(input, output, session) {
     validate(need(input$time_var, "Please map Time-to-Event column."))
     validate(need(input$status_var, "Please map Status column."))
     validate(need(input$arm_var, "Please map Treatment Arm column."))
+    if (input$model_selection %in% c("Additive Stratified Model", "Multiplicative Stratified Model")) {
+      validate(need(!is.null(input$strata_var) && nzchar(input$strata_var), "Please map a stratification variable for stratified models."))
+    }
     
     analysis_results <- NULL
     log_text <- capture.output({
       withProgress(message = 'Running Analysis', value = 0, {
         setProgress(0.2, detail = "Preparing analysis data...")
+        clean_time <- coerce_time_positive(rv$data_df[[input$time_var]], input$time_var)
+        clean_status <- coerce_status_binary(rv$data_df[[input$status_var]], input$status_var)
+        clean_arm <- coerce_arm_binary(rv$data_df[[input$arm_var]], input$arm_var)
+        pilot_data_clean <- rv$data_df
+        pilot_data_clean[[input$time_var]] <- clean_time
+        pilot_data_clean[[input$status_var]] <- clean_status
+        pilot_data_clean[[input$arm_var]] <- clean_arm
         analysis_data <- data.frame(
-          time = rv$data_df[[input$time_var]],
-          status = as.numeric(rv$data_df[[input$status_var]]),
-          arm = as.factor(rv$data_df[[input$arm_var]])
+          time = clean_time,
+          status = clean_status,
+          arm = factor(clean_arm, levels = c(0, 1))
         )
         if (!is.null(input$strata_var) && nzchar(input$strata_var) &&
             (input$model_selection %in% c("Additive Stratified Model","Multiplicative Stratified Model"))) {
-          analysis_data$stratum <- as.factor(rv$data_df[[input$strata_var]])
+          analysis_data$stratum <- as.factor(pilot_data_clean[[input$strata_var]])
         }
         # ----- Log-rank (stratified if applicable) -----
         setProgress(0.5, detail = "Log-rank test...")
@@ -1347,7 +1600,7 @@ server <- function(input, output, session) {
           R <- input$R_reps %||% 500
           if (input$analysis_type == "Power") {
             power_df <- repeated_power_from_pilot(
-              rv$data_df, input$time_var, input$status_var, input$arm_var,
+              pilot_data_clean, input$time_var, input$status_var, input$arm_var,
               n_per_arm_vec = n_vec, alpha = input$alpha, R = R,
               strata_var = if ("stratum" %in% names(analysis_data)) input$strata_var else NULL,
               seed = if (is.na(input$seed_reps)) NULL else as.integer(input$seed_reps)
@@ -1357,7 +1610,7 @@ server <- function(input, output, session) {
           } else {
             # search minimal N achieving target power
             power_df <- repeated_power_from_pilot(
-              rv$data_df, input$time_var, input$status_var, input$arm_var,
+              pilot_data_clean, input$time_var, input$status_var, input$arm_var,
               n_per_arm_vec = grid, alpha = input$alpha, R = R,
               strata_var = if ("stratum" %in% names(analysis_data)) input$strata_var else NULL,
               seed = if (is.na(input$seed_reps)) NULL else as.integer(input$seed_reps)
@@ -1383,7 +1636,7 @@ server <- function(input, output, session) {
               if (!length(n_vec)) n_vec <- c(100,150,200)
               
               dc <- DC.power.analytical.app(
-                pilot_data          = rv$data_df,
+                pilot_data          = pilot_data_clean,
                 time_var            = input$time_var,
                 status_var          = input$status_var,
                 arm_var             = input$arm_var,
@@ -1399,7 +1652,7 @@ server <- function(input, output, session) {
               
             } else {
               dc <- DC.ss.analytical.app(
-                pilot_data          = rv$data_df,
+                pilot_data          = pilot_data_clean,
                 time_var            = input$time_var,
                 status_var          = input$status_var,
                 arm_var             = input$arm_var,
@@ -1417,18 +1670,108 @@ server <- function(input, output, session) {
               results_summary <- dc$results_summary
             }
             
-          } else {
-            # Keep your existing simple placeholder for other models
+          } else if (input$model_selection == "Linear IPCW Model") {
             if (input$analysis_type == "Power") {
-              dfp <- data.frame(N_per_arm = c(100,150,200), Power = c(0.72,0.81,0.88))
-              results_plot <- make_power_plot(dfp, "analytical")
-              results_data <- dfp
+              lin <- linear.power.analytical.app(
+                pilot_data   = pilot_data_clean,
+                time_var     = input$time_var,
+                status_var   = input$status_var,
+                arm_var      = input$arm_var,
+                sample_sizes = n_vec,
+                linear_terms = NULL,
+                L            = input$L,
+                alpha        = input$alpha
+              )
             } else {
-              grid <- data.frame(N_per_arm = c(120, 160, 200), Power = c(0.70, 0.80, 0.87))
-              results_plot <- make_power_plot(grid, "analytical") +
-                geom_hline(yintercept = input$target_power, linetype = 2)
-              results_data <- grid
+              lin <- linear.ss.analytical.app(
+                pilot_data    = pilot_data_clean,
+                time_var      = input$time_var,
+                status_var    = input$status_var,
+                arm_var       = input$arm_var,
+                target_power  = input$target_power,
+                linear_terms  = NULL,
+                L             = input$L,
+                alpha         = input$alpha,
+                n_start       = 50,
+                n_step        = 25,
+                max_n_per_arm = 2000
+              )
             }
+            results_plot    <- lin$results_plot
+            results_data    <- lin$results_data
+            results_summary <- lin$results_summary
+            
+          } else if (input$model_selection == "Additive Stratified Model") {
+            if (input$analysis_type == "Power") {
+              add <- additive.power.analytical.app(
+                pilot_data   = pilot_data_clean,
+                time_var     = input$time_var,
+                status_var   = input$status_var,
+                arm_var      = input$arm_var,
+                strata_var   = input$strata_var,
+                sample_sizes = n_vec,
+                linear_terms = NULL,
+                L            = input$L,
+                alpha        = input$alpha
+              )
+            } else {
+              add <- additive.ss.analytical.app(
+                pilot_data    = pilot_data_clean,
+                time_var      = input$time_var,
+                status_var    = input$status_var,
+                arm_var       = input$arm_var,
+                strata_var    = input$strata_var,
+                target_power  = input$target_power,
+                linear_terms  = NULL,
+                L             = input$L,
+                alpha         = input$alpha,
+                n_start       = 50,
+                n_step        = 25,
+                max_n_per_arm = 2000
+              )
+            }
+            results_plot    <- add$results_plot
+            results_data    <- add$results_data
+            results_summary <- add$results_summary
+            
+          } else if (input$model_selection == "Multiplicative Stratified Model") {
+            if (input$analysis_type == "Power") {
+              mul <- MS.power.analytical.app(
+                pilot_data   = pilot_data_clean,
+                time_var     = input$time_var,
+                status_var   = input$status_var,
+                arm_var      = input$arm_var,
+                strata_var   = input$strata_var,
+                sample_sizes = n_vec,
+                linear_terms = NULL,
+                L            = input$L,
+                alpha        = input$alpha
+              )
+            } else {
+              mul <- MS.ss.analytical.app(
+                pilot_data    = pilot_data_clean,
+                time_var      = input$time_var,
+                status_var    = input$status_var,
+                arm_var       = input$arm_var,
+                strata_var    = input$strata_var,
+                target_power  = input$target_power,
+                linear_terms  = NULL,
+                L             = input$L,
+                alpha         = input$alpha,
+                n_start       = 50,
+                n_step        = 25,
+                max_n_per_arm = 2000
+              )
+            }
+            results_plot    <- mul$results_plot
+            results_data    <- mul$results_data
+            results_summary <- mul$results_summary
+            
+          } else if (input$model_selection == "Semiparametric (GAM) Model") {
+            stop("Analytical calculation is not implemented for Semiparametric (GAM) Model. Please use the Repeated method.", call. = FALSE)
+            
+          } else {
+            stop(paste("Unsupported model selection:", input$model_selection), call. = FALSE)
           }
         }
         
@@ -1667,6 +2010,6 @@ server <- function(input, output, session) {
   })
 }
 
-options(shiny.launch.browser = TRUE)
 shinyApp(ui, server)
+
 

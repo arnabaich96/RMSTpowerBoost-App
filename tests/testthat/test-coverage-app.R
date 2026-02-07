@@ -1,8 +1,10 @@
 options(stringsAsFactors = FALSE)
 suppressPackageStartupMessages({
   library(survival)
-  library(dplyr)
 })
+
+r_dir <- if (dir.exists("R")) "R" else file.path("..", "..", "R")
+invisible(lapply(sort(list.files(r_dir, pattern = "\\.R$", full.names = TRUE)), source))
 
 make_pilot <- function(n_per_stratum = 20, event_rate = 0.7) {
   n_per_stratum <- as.integer(n_per_stratum)
@@ -22,6 +24,12 @@ make_pilot <- function(n_per_stratum = 20, event_rate = 0.7) {
 }
 
 test_that("app coverage harness runs without error", {
+  needed_pkgs <- c("ggplot2", "knitr", "survival")
+  missing_pkgs <- needed_pkgs[!vapply(needed_pkgs, requireNamespace, logical(1), quietly = TRUE)]
+  if (length(missing_pkgs)) {
+    skip(paste("Missing package(s):", paste(missing_pkgs, collapse = ", ")))
+  }
+
   set.seed(123)
   pilot <- make_pilot()
 
@@ -38,7 +46,7 @@ test_that("app coverage harness runs without error", {
   tmp_dir <- tempfile("sets_")
   dir.create(tmp_dir, recursive = TRUE, showWarnings = FALSE)
 
-  expect_error({
+  expect_no_error({
     suppressWarnings({
     generate_recipe_sets(
       rec,
@@ -101,5 +109,5 @@ test_that("app coverage harness runs without error", {
     .run_survival_diagnostics(pilot, "time", "status", "arm", alpha = 0.05)
     .run_survival_diagnostics(pilot, "time", "status", "arm", strata_var = "strata", alpha = 0.05)
     })
-  }, NA)
+  })
 })

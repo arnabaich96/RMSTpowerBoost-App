@@ -16,7 +16,7 @@
   df <- pilot_data[stats::complete.cases(pilot_data[, all_vars]), ]
   n_pilot <- nrow(df)
   min_events_per_stratum <- 2 # Define a minimum threshold
-  event_counts <- stats::aggregate(as.formula(paste(status_var, "~", strata_var)), 
+  event_counts <- stats::aggregate(stats::as.formula(paste(status_var, "~", strata_var)), 
                             data = df, 
                             FUN = sum)
   
@@ -240,7 +240,7 @@ additive.ss.analytical.app <- function(pilot_data, time_var, status_var, arm_var
   results_df <- data.frame(Target_Power = target_power, Required_N_per_Stratum = final_n)
   search_path_df <- data.frame(N_per_Stratum = as.integer(names(search_path)), Power = unlist(search_path))
   
-  p <- ggplot2::ggplot(na.omit(search_path_df), ggplot2::aes(x = N_per_Stratum, y = Power)) +
+  p <- ggplot2::ggplot(stats::na.omit(search_path_df), ggplot2::aes(x = N_per_Stratum, y = Power)) +
     ggplot2::geom_line(color = "#009E73", linewidth = 1) +
     ggplot2::geom_point(color = "#009E73", size = 3) +
     ggplot2::geom_hline(yintercept = target_power, linetype = "dashed", color = "red") +

@@ -14,7 +14,7 @@
   pilot_groups <- split(cleaned_pilot_data, cleaned_pilot_data[[arm_var]])
   
   model_rhs <- paste(c(arm_var, linear_terms), collapse = " + ")
-  model_formula <- as.formula(paste("Y_rmst ~", model_rhs))
+  model_formula <- stats::as.formula(paste("Y_rmst ~", model_rhs))
   message("Model: Y_rmst ~ ", model_rhs)
   
   # --- 2. The Returned Simulation Function ---
@@ -47,7 +47,7 @@
       fit_weights <- weights[boot_data[[status_var]] == 1 & is.finite(weights)]
       
       if (nrow(fit_data) > (length(all_vars) + 1)) {
-        fit <- tryCatch(lm(model_formula, data = fit_data, weights = fit_weights), error = function(e) NULL)
+        fit <- tryCatch(stats::lm(model_formula, data = fit_data, weights = fit_weights), error = function(e) NULL)
         if (!is.null(fit)) {
           sfit <- summary(fit)
           test_term_pattern <- paste0("^", arm_var, "1$")
@@ -105,13 +105,13 @@ linear.power.boot.app <- function(pilot_data, time_var, status_var, arm_var,
   
   # Summarize results from the largest sample size simulation
   best_idx <- which.max(sample_sizes)
-  est <- na.omit(all_sim_outputs[[best_idx]]$estimates)
-  se  <- na.omit(all_sim_outputs[[best_idx]]$std_errors)
+  est <- stats::na.omit(all_sim_outputs[[best_idx]]$estimates)
+  se  <- stats::na.omit(all_sim_outputs[[best_idx]]$std_errors)
   results_summary <- NULL
   if (length(est) > 1) {
     results_summary <- data.frame(
       Statistic = c("Mean RMST Difference", "Mean Standard Error", "95% CI Lower", "95% CI Upper"),
-      Value = c(mean(est), mean(se, na.rm=TRUE), mean(est) - 1.96 * sd(est), mean(est) + 1.96 * sd(est))
+      Value = c(mean(est), mean(se, na.rm=TRUE), mean(est) - 1.96 * stats::sd(est), mean(est) + 1.96 * stats::sd(est))
     )
   }
   
@@ -210,12 +210,12 @@ linear.ss.boot.app <- function(pilot_data, time_var, status_var, arm_var,
   # --- Finalize Summary, Plot, and Results ---
   results_summary <- NULL
   if (!is.null(best_sim_output)) {
-    est <- na.omit(best_sim_output$estimates)
-    se  <- na.omit(best_sim_output$std_errors)
+    est <- stats::na.omit(best_sim_output$estimates)
+    se  <- stats::na.omit(best_sim_output$std_errors)
     if(length(est) > 1) {
       results_summary <- data.frame(
         Statistic = c("Mean RMST Difference", "Mean Standard Error", "95% CI Lower", "95% CI Upper"),
-        Value = c(mean(est), mean(se, na.rm=TRUE), mean(est) - 1.96 * sd(est), mean(est) + 1.96 * sd(est))
+        Value = c(mean(est), mean(se, na.rm=TRUE), mean(est) - 1.96 * stats::sd(est), mean(est) + 1.96 * stats::sd(est))
       )
     }
   }
@@ -224,7 +224,7 @@ linear.ss.boot.app <- function(pilot_data, time_var, status_var, arm_var,
   search_path_df <- data.frame(N_per_Arm = as.integer(names(search_results)),
                                Power = unlist(search_results))
   
-  p <- ggplot2::ggplot(na.omit(search_path_df), ggplot2::aes(x = N_per_Arm, y = Power)) +
+  p <- ggplot2::ggplot(stats::na.omit(search_path_df), ggplot2::aes(x = N_per_Arm, y = Power)) +
     ggplot2::geom_line(color = "#009E73", linewidth = 1) +
     ggplot2::geom_point(color = "#009E73", size = 3) +
     ggplot2::geom_hline(yintercept = target_power, linetype = "dashed", color = "red") +

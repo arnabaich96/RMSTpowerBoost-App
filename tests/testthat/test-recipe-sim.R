@@ -1,5 +1,8 @@
 options(stringsAsFactors = FALSE)
 
+r_dir <- if (dir.exists("R")) "R" else file.path("..", "..", "R")
+invisible(lapply(sort(list.files(r_dir, pattern = "\\.R$", full.names = TRUE)), source))
+
 test_that("validate_recipe normalizes PH exponential and sets defaults", {
   rec <- list(
     n = 10,

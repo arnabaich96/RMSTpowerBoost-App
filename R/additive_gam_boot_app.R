@@ -277,7 +277,7 @@ additive.ss.boot.app <- function(pilot_data, time_var, status_var, arm_var, stra
   search_path_df <- data.frame(N_per_Group = as.integer(names(search_results)),
                                Power = unlist(search_results))
   
-  p <- ggplot2::ggplot(na.omit(search_path_df), ggplot2::aes(x = N_per_Group, y = Power)) +
+  p <- ggplot2::ggplot(stats::na.omit(search_path_df), ggplot2::aes(x = N_per_Group, y = Power)) +
     ggplot2::geom_line(color = "#009E73", linewidth = 1) +
     ggplot2::geom_point(color = "#009E73", size = 3) +
     ggplot2::geom_hline(yintercept = target_power, linetype = "dashed", color = "red") +
