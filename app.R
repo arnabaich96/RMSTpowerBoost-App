@@ -813,16 +813,19 @@ report_inputs_builder <- function(input) {
   )
 }
 
+build_app_theme <- function(bootswatch = "sandstone") {
+  bs_theme(
+    version = 5,
+    bootswatch = bootswatch,
+    base_font = font_google("Space Grotesk"),
+    heading_font = font_google("Bebas Neue")
+  )
+}
 
 
 # ------------------ UI ------------------
 ui <- fluidPage(
-  theme = bs_theme(
-    version = 5,
-    bootswatch = "sandstone",
-    base_font = font_google("Space Grotesk"),
-    heading_font = font_google("Bebas Neue")
-  ),
+  theme = build_app_theme("sandstone"),
   tags$head(
     tags$link(rel = "stylesheet", type = "text/css", href = "custom.css")
   ),
@@ -865,9 +868,7 @@ ui <- fluidPage(
           fluidRow(
             column(6, downloadButton("download_csv_template", "Download CSV Template")),
             column(6, downloadButton("download_toy_pilot", "Download Toy Pilot Data"))
-          ),
-          helpText("Quick format check: status uses 1=event, 0=censored; arm must contain exactly 2 groups."),
-          helpText("Privacy: Uploaded data is used for in-session computation and is not persisted by this app.")
+          )
         )),
         shinyjs::hidden(div(
           id = "simulate_panel",
@@ -893,8 +894,7 @@ ui <- fluidPage(
                 fluidRow(
                   column(6, numericInput("tf_center", "Location (center a)", value = 0)),
                   column(6, numericInput("tf_scale",  "Scale (divide by b)", value = 1, min = 0.0001, step = 0.1))
-                ),
-                helpText("Applied after generation: (x - a) / b")
+                )
               ),
               conditionalPanel(
                 condition = "input.cov_type == 'categorical'",
@@ -904,25 +904,24 @@ ui <- fluidPage(
                   column(3, numericInput("cat_add_coef", "Coefficient beta", value = 0))
                 ),
                 fluidRow(
-                  column(4, actionButton("add_cat_row", "Add category", icon=icon("plus"))),
-                  column(4, actionButton("reset_cat_rows", "Reset categories", icon=icon("trash"))),
-                  column(4, actionButton("remove_cat_row", "Remove selected", icon=icon("minus")))
+                  column(4, actionButton("add_cat_row", "Add", icon=icon("plus"))),
+                  column(4, actionButton("reset_cat_rows", "Reset", icon=icon("trash"))),
+                  column(4, actionButton("remove_cat_row", "Remove", icon=icon("minus")))
                 ),
                 br(),
-                DTOutput("cat_table"),
-                helpText("Tip: If you include intercept in model.matrix, only K-1 coefficients are used (last level's beta is ignored).")
+                DTOutput("cat_table")
               ),
               fluidRow(
-                column(6, actionButton("add_cov", "Add covariate", icon = icon("plus"), class = "btn btn-success")),
-                column(6, actionButton("reset_cov_builder", "Reset builder", icon = icon("trash")))
+                column(6, actionButton("add_cov", "Add", icon = icon("plus"), class = "btn btn-success")),
+                column(6, actionButton("reset_cov_builder", "Reset", icon = icon("trash")))
               ),
               br(), DTOutput("cov_table"),
               div(class="pb-mt-8",
-                  actionButton("remove_cov", "Remove selected covariate", icon = icon("minus"))
+                  actionButton("remove_cov", "Remove", icon = icon("minus"))
               ),
               tags$hr(),
               fluidRow(
-                column(6, actionButton("confirm_covariates", "Confirm Covariates", icon = icon("check"), class = "btn btn-primary")),
+                column(6, actionButton("confirm_covariates", "Confirm", icon = icon("check"), class = "btn btn-primary")),
                 column(6, div())
               )
             ),
@@ -950,12 +949,16 @@ ui <- fluidPage(
               ),
               tags$hr(),
               fluidRow(
-                column(4, numericInput("sim_seed", "Seed (optional)", value = NA)),
-                column(4, actionButton("generate_sim", "Generate Data", icon = icon("gears"), class = "btn btn-primary")),
-                column(4, actionButton("reset_generate", "Reset data", icon = icon("trash")))
+                column(4, numericInput("sim_seed", "Seed (optional)", value = NA))
               ),
-              fluidRow(column(12, uiOutput("sim_baseline_ui"))),
-              uiOutput("sim_validation_ui")
+              tags$hr(),
+              fluidRow(column(12, uiOutput("sim_baseline_ui")))
+              ,
+              tags$hr(),
+              fluidRow(
+                column(6, actionButton("generate_sim", "Generate", icon = icon("gears"), class = "btn btn-primary workflow-btn")),
+                column(6, actionButton("reset_generate", "Reset", icon = icon("trash"), class = "btn btn-danger workflow-btn"))
+              )
             ),
             open = c("1A. Covariate Builder")
           ),
@@ -969,7 +972,6 @@ ui <- fluidPage(
         wellPanel(
           id = "data_cleaning_panel",
           h4("Step 2. MICE / Cleaning (Upload Only)"),
-          uiOutput("cleaning_ready_badge_ui"),
           uiOutput("data_cleaning_sidebar_ui"),
           fluidRow(
             column(6, actionButton("confirm_step2_data_upload", "Confirm", class = "btn btn-success btn-sm workflow-btn")),
@@ -1007,13 +1009,6 @@ ui <- fluidPage(
               column(4, sliderInput("alpha", "Significance Level (alpha)", min = 0.01, max = 0.1, value = 0.05, step = 0.01))
             ),
             radioButtons("calc_method", "Calculation Method", choices = c("Analytical", "Repeated"), selected = "Analytical", inline = TRUE),
-            helpText("Analytical: formula-based and typically fast. Repeated: simulation-based, slower, reports Monte Carlo uncertainty."),
-            conditionalPanel(
-              condition = "input.calc_method == 'Repeated' && input.R_reps >= 2000",
-              div(class = "alert alert-warning",
-                  strong("Runtime warning: "),
-                  "High replication settings can take substantial time. Consider Analytical mode for quick iteration.")
-            ),
             uiOutput("analysis_inputs_ui"),
             conditionalPanel(
               condition = "input.calc_method == 'Repeated'",
@@ -1023,20 +1018,14 @@ ui <- fluidPage(
               )
             ),
             uiOutput("run_checklist_ui"),
-            uiOutput("missing_warning_ui"),
-            uiOutput("calc_steps_ui"),
             tags$hr(),
             shinyjs::hidden(fluidRow(
               id = "analysis_run_panel",
-              column(4, actionButton("run_analysis", "Run Analysis", icon = icon("play"), class = "btn-primary btn-lg")),
+              column(4, actionButton("run_analysis", "Run", icon = icon("play"), class = "btn-primary btn-lg")),
               column(8, shinyjs::hidden(
                 div(id="download_reset_row",
-                    downloadButton("download_report_pdf", "Download PDF"),
-                    downloadButton("download_report_html", "Download HTML"),
-                    tags$div(
-                      class = "metric-note",
-                      "PDF export requires a LaTeX engine (MiKTeX/TinyTeX). If PDF fails, install missing LaTeX packages and retry."
-                    )
+                    downloadButton("download_report_pdf", "PDF"),
+                    downloadButton("download_report_html", "HTML")
                 )
               ))
             ))
@@ -1053,32 +1042,33 @@ ui <- fluidPage(
           "Pipeline",
           div(class = "section-card", uiOutput("pipeline_page_ui"))
         ),
-        tabPanel("Data Preview",
+        tabPanel("Data",
                  uiOutput("data_export_ui"),
                  uiOutput("missing_profile_ui"),
                  DT::dataTableOutput("data_preview_table")),
-        tabPanel("Plot Output",
+        tabPanel("Summary",
+                 div(
+                   class = "section-card",
+                   h4(class = "section-title", "Data Summary"),
+                   uiOutput("data_summary_ui")
+                 ),
                  div(
                    class = "section-card",
                    h4(class = "section-title", "Covariate Distributions"),
                    p(class = "section-lead", "Quick distribution checks for data quality and scale sanity."),
                    uiOutput("cov_plots_ui")
-                 ),
+                 )
+        ),
+        tabPanel("KM Plot",
                  div(
                    class = "section-card",
                    h4(class = "section-title", "Kaplan-Meier Survival Plots"),
                    span(class = "metric-note", "Exploratory diagnostic"),
                    htmlOutput("km_note"),
                    plotlyOutput("survival_plotly_output", height = "650px")
-                 ),
-                 div(
-                   class = "section-card",
-                   h4(class = "section-title", "Power vs. Sample Size"),
-                   span(class = "metric-note", "Primary planning output"),
-                   plotlyOutput("results_plot", height = "520px")
                  )
         ),
-        tabPanel("Summary",
+        tabPanel("Analysis",
                  div(
                    class = "section-card",
                    h4(class = "section-title", "Key Results"),
@@ -1096,15 +1086,45 @@ ui <- fluidPage(
                  ),
                  div(
                    class = "section-card",
-                   h4(class = "section-title", "Data Summary"),
-                   uiOutput("data_summary_ui")
+                   h4(class = "section-title", "Power vs. Sample Size"),
+                   span(class = "metric-note", "Primary planning output"),
+                   plotlyOutput("results_plot", height = "520px")
                  )
         ),
         tabPanel("Run Log", uiOutput("run_log_summary_ui"), verbatimTextOutput("console_log_output")),
         tabPanel("About", uiOutput("about_tab_ui"))
       )
     )
-  ))
+  ),
+  div(
+    id = "theme_widget_container",
+    actionButton("theme_widget_open", "Theme", class = "btn btn-primary theme-widget-open"),
+    shinyjs::hidden(
+      div(
+        id = "theme_widget_panel",
+        class = "theme-widget-panel",
+        div(
+          class = "theme-widget-header",
+          tags$span("Theme"),
+          actionButton("theme_widget_close", "Close", class = "btn btn-default btn-sm")
+        ),
+        selectInput(
+          "theme_preset",
+          "Theme preset",
+          choices = c(
+            "Sandstone" = "sandstone",
+            "Flatly" = "flatly",
+            "Minty" = "minty",
+            "Cosmo" = "cosmo",
+            "Journal" = "journal"
+          ),
+          selected = "sandstone"
+        ),
+        actionButton("apply_theme", "Apply", class = "btn btn-primary workflow-btn")
+      )
+    )
+  )
+)
 )
 
 # ------------------ Repeated Power (no 'bootstrap' wording) ------------------
@@ -1589,17 +1609,6 @@ server <- function(input, output, session) {
     showNotification("Step 2 cleaning options reset.", type = "message")
   })
   
-  output$sim_validation_ui <- renderUI({
-    v <- sim_validation()
-    if (isTRUE(v$ok)) {
-      div(class = "alert alert-success", strong("Simulation settings look valid."))
-    } else {
-      div(class = "alert alert-warning",
-          strong("Please resolve the following before generating data:"),
-          tags$ul(lapply(v$messages, tags$li)))
-    }
-  })
-  
   output$run_checklist_ui <- renderUI({
     ck <- analysis_checklist()
     mark <- function(ok) if (isTRUE(ok)) "\u2713" else "\u2717"
@@ -1908,7 +1917,8 @@ server <- function(input, output, session) {
       showNotification("Add at least one covariate before confirming.", type = "warning")
       return()
     }
-    bslib::accordion_panel_open("step1_accordion", "1b. Event Time Settings")
+    try(bslib::accordion_panel_close("step1_accordion", "1A. Covariate Builder"), silent = TRUE)
+    bslib::accordion_panel_open("step1_accordion", "1B. Event Time Settings")
     showNotification("Covariates confirmed. Continue with Event Time Settings.", type = "message")
   })
   
@@ -2055,7 +2065,7 @@ server <- function(input, output, session) {
     rv$step2_data_confirmed <- FALSE
     rv$step2_confirmed <- FALSE
     rv$auto_run_pending <- FALSE
-    updateTabsetPanel(session, "main_tabs", selected = "Data Preview")
+    updateTabsetPanel(session, "main_tabs", selected = "Data")
   })
   
   # Reset data (generation card)
@@ -2174,9 +2184,7 @@ server <- function(input, output, session) {
     rv$data_source <- "simulated"
     rv$auto_run_pending <- FALSE
     showNotification("Simulation complete.", type = "message")
-    shinyjs::hide(id = "simulate_panel")
-    shinyjs::show(id = "model_analysis_panel")
-    updateTabsetPanel(session, "main_tabs", selected = "Data Preview")
+    updateTabsetPanel(session, "main_tabs", selected = "Data")
     rv$provenance <- list(
       Source = "simulated",
       Number_of_rows = nrow(dat),
@@ -2317,60 +2325,14 @@ server <- function(input, output, session) {
     )
   })
   
-  output$missing_warning_ui <- renderUI({
-    if (is.null(rv$data_df) || !nrow(rv$data_df)) return(NULL)
-    miss_total <- sum(is.na(rv$data_df))
-    if (miss_total <= 0) return(NULL)
-    div(
-      class = "alert alert-warning",
-      sprintf("Warning: final analysis dataset currently contains %s missing values. Clean or impute before running analysis.", miss_total)
-    )
-  })
-  
-  output$calc_steps_ui <- renderUI({
-    tagList(
-      div(class = "metric-note", "Step 4 shows calculation progress and messages in Run Log."),
-      tags$ol(
-        tags$li("Validate mapped variables and cleaning status."),
-        tags$li("Prepare analysis data and run survival checks."),
-        tags$li("Compute power/sample-size curve based on selected method."),
-        tags$li("Populate plots, tables, and summary outputs.")
-      )
-    )
-  })
-
-  output$cleaning_ready_badge_ui <- renderUI({
+  output$data_cleaning_sidebar_ui <- renderUI({
     if (!identical(rv$data_source, "uploaded")) return(NULL)
     ms <- rv$missing_summary
     if (is.null(ms) || !nrow(ms)) return(NULL)
-    if (sum(ms$Missing_Count) > 0) return(NULL)
-    div(
-      class = "alert alert-success",
-      "\u2713 Data cleaning complete. Missing values resolved. Analysis section is unlocked."
-    )
-  })
-  
-  output$data_cleaning_sidebar_ui <- renderUI({
-    if (!identical(rv$data_source, "uploaded")) {
-      return(div(class = "alert alert-info", "Data Cleaning appears here only for uploaded datasets."))
-    }
-    ms <- rv$missing_summary
-    if (is.null(ms) || !nrow(ms)) {
-      return(div(class = "alert alert-info", "No upload profiling available yet."))
-    }
     total_missing <- sum(ms$Missing_Count)
     missing_cols <- ms$Column[ms$Missing_Count > 0]
     selected_mode <- isolate(input$clean_action_mode %||% rv$recommended_clean_mode %||% "ignore")
     tagList(
-      div(
-        class = "section-card",
-        h4("Upload Data Verification"),
-        if (total_missing == 0) {
-          div(class = "alert alert-success", "No missing values found. Proceeding to analysis-ready data.")
-        } else {
-          div(class = "alert alert-warning", sprintf("Detected %s missing values across %s columns.", total_missing, sum(ms$Missing_Count > 0)))
-        }
-      ),
       if (total_missing > 0) div(
         class = "section-card",
         h4("Cleaning Action"),
@@ -2391,8 +2353,7 @@ server <- function(input, output, session) {
             choices = c("Drop rows with missing entries" = "rows", "Drop columns with missing entries" = "cols", "Drop both rows and columns" = "both"),
             selected = "rows"
           ),
-          selectizeInput("ignore_drop_cols", "Columns to drop (when column drop is selected)", choices = missing_cols, selected = missing_cols, multiple = TRUE),
-          if (total_missing > 0) div(class = "alert alert-info", "Selected rows/columns with missing entries will be dropped from further analysis.")
+          selectizeInput("ignore_drop_cols", "Columns to drop (when column drop is selected)", choices = missing_cols, selected = missing_cols, multiple = TRUE)
         ),
         if ((input$clean_action_mode %||% selected_mode) %in% c("impute", "both")) tagList(
           fluidRow(
@@ -2405,7 +2366,7 @@ server <- function(input, output, session) {
             sliderInput("drop_pct_threshold", "Drop columns with missing % above", min = 0, max = 100, value = 40, step = 1)
           )
         ),
-        actionButton("apply_data_cleaning", "Apply Data Cleaning", class = "btn btn-primary")
+        actionButton("apply_data_cleaning", "Apply", class = "btn btn-primary")
       )
     )
   })
@@ -2537,7 +2498,7 @@ server <- function(input, output, session) {
     }
     if (!rv$cleaning_required) {
       append_clean_log("Data cleaning successful: missing values resolved. Step 2 is now available.")
-      updateTabsetPanel(session, "main_tabs", selected = "Data Preview")
+      updateTabsetPanel(session, "main_tabs", selected = "Data")
       showNotification("Data cleaning successful. Proceed to Step 2.", type = "message")
     } else {
       append_clean_log("Data cleaning applied but missing values still remain; adjust settings and re-apply.")
@@ -2628,6 +2589,11 @@ server <- function(input, output, session) {
   run_output <- reactiveVal(list(results = NULL, log = "Analysis has not been run yet."))
   console_log <- reactiveVal("")
   run_request <- reactiveVal(0L)
+
+  observeEvent(rv$data_df, {
+    run_output(list(results = NULL, log = "Analysis has not been run yet."))
+    rv$live_power_active <- FALSE
+  }, ignoreInit = TRUE)
   
   # Keep power plot output alive even when its tab is hidden.
   # Register after outputs are initialized to avoid startup ordering issues.
@@ -2637,7 +2603,7 @@ server <- function(input, output, session) {
   
   observeEvent(input$run_analysis, {
     run_request(run_request() + 1L)
-    updateTabsetPanel(session, "main_tabs", selected = "Plot Output")
+    updateTabsetPanel(session, "main_tabs", selected = "Analysis")
   }, ignoreInit = TRUE)
   
   observe({
@@ -3008,7 +2974,7 @@ server <- function(input, output, session) {
     rv$last_warning_lines <- grep("warning", log_lines, ignore.case = TRUE, value = TRUE)
     rv$last_error_lines <- grep("error", log_lines, ignore.case = TRUE, value = TRUE)
     shinyjs::show(id = "download_reset_row")
-    updateTabsetPanel(session, "main_tabs", selected = "Summary")
+    updateTabsetPanel(session, "main_tabs", selected = "Analysis")
   })
   
   # KM plots (faceted by stratum; at most 2 per row)
@@ -3400,6 +3366,22 @@ server <- function(input, output, session) {
     shinyjs::toggle(id = "step3_controls", condition = show_step3_4 && !isTRUE(rv$step2_confirmed))
     shinyjs::toggle(id = "step4_controls", condition = show_step3_4 && isTRUE(rv$step2_confirmed))
   })
+
+  observeEvent(input$apply_theme, {
+    sel <- input$theme_preset %||% "sandstone"
+    session$setCurrentTheme(build_app_theme(sel))
+    showNotification(sprintf("Theme applied: %s", sel), type = "message", duration = 3)
+  }, ignoreInit = TRUE)
+
+  observeEvent(input$theme_widget_open, {
+    shinyjs::hide("theme_widget_open")
+    shinyjs::show("theme_widget_panel")
+  }, ignoreInit = TRUE)
+
+  observeEvent(input$theme_widget_close, {
+    shinyjs::hide("theme_widget_panel")
+    shinyjs::show("theme_widget_open")
+  }, ignoreInit = TRUE)
   
   # Reset workflow (always available in Step 2/3)
   observeEvent(input$reset_workflow, {

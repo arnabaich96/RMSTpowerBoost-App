@@ -56,7 +56,7 @@
     <li>When the analysis panel appears, map <strong>Time-to-Event</strong>, <strong>Status (1=event)</strong>, and <strong>Treatment Arm (1=treat)</strong>.</li>
     <li>Choose <strong>Target Quantity</strong>: <em>Power</em> (enter sample sizes) or <em>Sample Size</em> (enter target power).</li>
     <li>Set <strong>RMST L (τ)</strong> and <strong>α</strong>. Pick <strong>Analytical</strong> (fast) or <strong>Repeated</strong> (simulation-based).</li>
-    <li>Click <strong>Run Analysis</strong>. Review plots and tables, then download the report.</li>
+    <li>Click <strong>Run</strong>. Review plots and tables, then download the report.</li>
   </ol>
 </div>
 
@@ -128,7 +128,8 @@
       <ul class="pb-ul">
         <li>Build covariates (continuous/categorical), then set the event-time model (AFT/PH/PWExponential).</li>
         <li>Choose allocation ratio, treatment effect, target censoring, and seed (optional).</li>
-        <li>Click <strong>Generate Pilot Dataset</strong>. The generated data becomes your “pilot” for Step 2–3.</li>
+        <li>Click <strong>Generate</strong>. Data, Summary, and KM Plot tabs refresh on each generate run.</li>
+        <li>After confirming covariates, panel <strong>1B</strong> opens and panel <strong>1A</strong> folds (it stays available).</li>
       </ul>
     </div>
   </div>
@@ -243,11 +244,12 @@
     <h3 class="section-title">Where to look for results</h3>
   <div class="pb-grid-2">
     <div class="pb-callout pb-callout-info">
-      <div class="pb-callout-title">Plots</div>
+      <div class="pb-callout-title">Tabs</div>
       <ul class="pb-ul">
-        <li>Covariate distribution diagnostics (by treatment arm)</li>
-        <li>Kaplan–Meier curves</li>
-        <li>Power curves / operating characteristics</li>
+        <li><strong>Data</strong>: current dataset and export tools</li>
+        <li><strong>Summary</strong>: data summary first, then histograms</li>
+        <li><strong>KM Plot</strong>: Kaplan–Meier curves</li>
+        <li><strong>Analysis</strong>: key results, power/sample-size tables, analysis summary, and power plot</li>
       </ul>
     </div>
     <div class="pb-callout pb-callout-info">

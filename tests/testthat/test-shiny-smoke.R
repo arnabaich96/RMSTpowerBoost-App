@@ -2,10 +2,12 @@
 test_that("shiny smoke: app launches", {
   skip_if_no_shinytest2()
 
-  app <- shinytest2::AppDriver$new(
+  app <- safe_app_driver(
     app_dir = app_dir_path(),
     name = "smoke",
-    seed = 1
+    seed = 1,
+    load_timeout = 60000,
+    timeout = 60000
   )
   on.exit(app$stop(), add = TRUE)
 

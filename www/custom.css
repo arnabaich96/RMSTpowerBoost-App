@@ -205,3 +205,31 @@ table.dataTable thead td {
 @media (prefers-reduced-motion: reduce) {
   .app-shell { animation: none !important; }
 }
+
+#theme_widget_container {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 1400;
+}
+
+.theme-widget-open {
+  min-width: 96px;
+}
+
+.theme-widget-panel {
+  width: min(320px, calc(100vw - 24px));
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid var(--pb-border);
+  border-radius: 14px;
+  padding: 12px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.12);
+}
+
+.theme-widget-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-weight: 700;
+}

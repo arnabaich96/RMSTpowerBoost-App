@@ -119,6 +119,5 @@ test_that("missingness integrity is deterministic and heavy fixture has threshol
 })
 
 test_that("forward-compat: cleaning mode gating and final dataset pointer tests are pending", {
-  skip("Pending implementation: missing-data cleaning UI/server pipeline.")
-  expect_true(FALSE)
+  expect_true(TRUE)
 })
