@@ -1033,7 +1033,6 @@ ui <- fluidPage(
                 div(id="download_reset_row",
                     downloadButton("download_report_pdf", "Download PDF"),
                     downloadButton("download_report_html", "Download HTML"),
-                    actionButton("reset_all", "Reset All", icon = icon("trash")),
                     tags$div(
                       class = "metric-note",
                       "PDF export requires a LaTeX engine (MiKTeX/TinyTeX). If PDF fails, install missing LaTeX packages and retry."
@@ -3431,34 +3430,6 @@ server <- function(input, output, session) {
     showNotification("Workflow reset to main page.", type = "message")
   })
   
-  # Reset all (appears after analysis)
-  observeEvent(input$reset_all, {
-    rv$covariates <- list()
-    rv$cat_rows <- tibble::tibble(cat = character(), prob = numeric(), coef = numeric())
-    rv$data_df <- NULL; rv$data_source <- NULL; rv$console_buf <- character(0); rv$provenance <- NULL
-    rv$data_df_raw_upload <- NULL
-    rv$missing_summary <- NULL
-    rv$cleaning_logs <- character(0)
-    rv$cleaning_mode <- NULL
-    rv$cleaning_report <- list(
-      mode = "complete_data",
-      used_mice = FALSE,
-      message = "Complete data used.",
-      mice_parameters = NULL
-    )
-    rv$cleaning_required <- FALSE
-    rv$recommended_clean_mode <- "ignore"
-    rv$step1_confirmed <- FALSE
-    rv$step2_data_confirmed <- FALSE
-    rv$step2_confirmed <- FALSE
-    rv$auto_run_pending <- FALSE
-    rv$effective_sim_seed <- NULL
-    rv$effective_reps_seed <- NULL
-    shinyjs::hide("download_reset_row")
-    shinyjs::show("simulate_panel")
-    updateTabsetPanel(session, "main_tabs", selected = "Pipeline")
-    showNotification("All inputs reset.", type="message")
-  })
 }
 
 shinyApp(ui, server)

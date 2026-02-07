@@ -1,4 +1,4 @@
-# Extracted from test-app-modernization.R:80
+# Extracted from test-app-modernization.R:81
 
 # setup ------------------------------------------------------------------------
 library(testthat)
@@ -22,3 +22,4 @@ expect_true(file.exists(html_path))
 html <- paste(readLines(html_path, warn = FALSE), collapse = "\n")
 expect_match(html, "RMSTpowerBoost Pipeline", perl = TRUE)
 expect_match(html, "Step 1\\. Data Upload or Generate", perl = TRUE)
+expect_match(html, "Step 4\\. Analysis", perl = TRUE)

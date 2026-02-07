@@ -20,4 +20,4 @@ if (!nzchar(app_root)) skip("Repo pipeline.html not available in this test conte
 html_path <- file.path(app_root, "www", "pipeline.html")
 expect_true(file.exists(html_path))
 html <- paste(readLines(html_path, warn = FALSE), collapse = "\n")
-expect_match(html, "RMSTpowerBoost Workflow", perl = TRUE)
+expect_match(html, "RMSTpowerBoost Pipeline", perl = TRUE)
